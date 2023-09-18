@@ -245,28 +245,36 @@ void loop() {
 
   FloatToInt16 conversion;
 
-  // Setup Modbus Input Registers
+  // Update Modbus Input Registers
 
-    // setup Current Temperature 
+    // Write Current Temperature to Modbus
     conversion.f = temperature;
     ModbusInputRegisters[0] = conversion.ModbusInt[0];
     ModbusInputRegisters[1] = conversion.ModbusInt[1];
 
-    // Setup Current Humidity    
+    // Write Current Humidity to Modbus
     conversion.f = humidity;
     ModbusInputRegisters[2] = conversion.ModbusInt[0];
     ModbusInputRegisters[3] = conversion.ModbusInt[1];
 
     // Write Input Registers to Modbus
+    // 0x00 - Temperature (32 bit float)
+    // 0x01 - 
+    // 0x02 - Humidity (32 bit float)
+    // 0x03 - 
     modbusTCPServer.writeInputRegisters(0x00, ModbusInputRegisters, _MODBUSINPUTREGISTERS);
 
     // Write Discrete Input registers to Modbus 
+    // 0x04 - High Temperature alert is active
+    // 0x05 - Low Temperature alert is active
+    // 0x06 - High Humidity alert is active
+    // 0x07 - Low Humidity alert is active
     modbusTCPServer.discreteInputWrite(0x04, sht31.HighTempActive()); // High Temperature alert is Active
     modbusTCPServer.discreteInputWrite(0x05, sht31.LowTempActive()); // Low Temperature alert is Active
     modbusTCPServer.discreteInputWrite(0x06, sht31.HighHumidityActive()); // High Humidity alert is Active
     modbusTCPServer.discreteInputWrite(0x07, sht31.LowHumidityActive()); // Low Humidity alert is Active
 
-    // Write Modbus Holding Registers 
+    // Write Current Modbus Holding Registers 
 
     // Get current High and Low alert levels
     sht31.ReadHighAlert(&highAlert);
@@ -369,69 +377,43 @@ void loop() {
   ModbusLowAlert.ClearHumidity = conversion.f;
 
   // Determine which holding registers changed. Update as necessary. 
-  bool ShouldUpdateModbus = false;
-  // High Temperature alert Setpoint changed 
-  if(ModbusHighAlert.SetTemp!=highAlert.SetTemp){
-      if(ModbusHighAlert.SetTemp>=-20&&ModbusHighAlert.SetTemp<=200){
-        highAlert.SetTemp = ModbusHighAlert.SetTemp;
-        ShouldUpdateModbus = true;
-      }
-  }
-  // High Temperature alert Clear point changed 
-  if(ModbusHighAlert.ClearTemp!=highAlert.ClearTemp){
-      if(ModbusHighAlert.ClearTemp>=-20&&ModbusHighAlert.ClearTemp<=200){
-        highAlert.ClearTemp = ModbusHighAlert.ClearTemp;
-        ShouldUpdateModbus = true;
-      }
-  }
-  // High Humidity alert Setpoint changed
-  if(ModbusHighAlert.SetHumidity!=highAlert.SetHumidity){
-      if(ModbusHighAlert.SetHumidity>=0&&ModbusHighAlert.SetHumidity<=100){
-        highAlert.SetHumidity = ModbusHighAlert.SetHumidity;
-        ShouldUpdateModbus = true;
-      }
-  }
-  // High Humidity alert Clear point changed
-  if(ModbusHighAlert.ClearHumidity!=highAlert.ClearHumidity){
-      if(ModbusHighAlert.ClearHumidity>=0&&ModbusHighAlert.ClearHumidity<=100){
-        highAlert.ClearHumidity = ModbusHighAlert.ClearHumidity;
-        ShouldUpdateModbus = true;
-      }
-  }
-  // Low temperature setpoint changed
-  if(ModbusLowAlert.SetTemp!=LowAlert.SetTemp){
-      if(ModbusLowAlert.SetTemp>=-20&&ModbusLowAlert.SetTemp<=200){
-        LowAlert.SetTemp = ModbusLowAlert.SetTemp;
-        ShouldUpdateModbus = true;
-      }
-  }
-  // low temperature clear point changed
-  if(ModbusLowAlert.ClearTemp!=LowAlert.ClearTemp){
-      if(ModbusLowAlert.ClearTemp>=-20&&ModbusLowAlert.ClearTemp<=200){
-        LowAlert.ClearTemp = ModbusLowAlert.ClearTemp;
-        ShouldUpdateModbus = true;
-      }
-  }
-  // low humidity setpoint changed
-  if(ModbusLowAlert.SetHumidity!=LowAlert.SetHumidity){
-      if(ModbusLowAlert.SetHumidity>=0&&ModbusLowAlert.SetHumidity<=100){
-        LowAlert.SetHumidity = ModbusLowAlert.SetHumidity;
-        ShouldUpdateModbus = true;
-      }
-  }
-  // low humidity clear point changed
-  if(ModbusLowAlert.ClearHumidity!=LowAlert.ClearHumidity){
-      if(ModbusLowAlert.ClearHumidity>=0&&ModbusLowAlert.ClearHumidity<=100){
-        LowAlert.ClearHumidity = ModbusLowAlert.ClearHumidity;
-        ShouldUpdateModbus = true;
-      }
-  }
-
-  // if any alert values changed, update the sensor. 
-  if(ShouldUpdateModbus){
-    sht31.setHighAlert(&highAlert);
-    sht31.setLowAlert(&LowAlert);
-    ShouldUpdateModbus = false;
+  bool ShouldUpdateModbus = false; 
+  if(ModbusHighAlert.SetTemp!=highAlert.SetTemp){   // High Temperature alert Setpoint changed 
+      if(ModbusHighAlert.SetTemp>=-20&&ModbusHighAlert.SetTemp<=200){ // Sanity check
+        highAlert.SetTemp = ModbusHighAlert.SetTemp; // Update High Temperature Setpoint
+        ShouldUpdateModbus = true;}} // Notify Holding Registers Changed
+  if(ModbusHighAlert.ClearTemp!=highAlert.ClearTemp){   // High Temperature alert Clear point changed 
+      if(ModbusHighAlert.ClearTemp>=-20&&ModbusHighAlert.ClearTemp<=200){ // Sanity check
+        highAlert.ClearTemp = ModbusHighAlert.ClearTemp; //Update High Temperature Clear point
+        ShouldUpdateModbus = true;}}  // Notify Holding Registers Changed
+  if(ModbusHighAlert.SetHumidity!=highAlert.SetHumidity){   // High Humidity alert Setpoint changed
+      if(ModbusHighAlert.SetHumidity>=0&&ModbusHighAlert.SetHumidity<=100){ // Sanity check 
+        highAlert.SetHumidity = ModbusHighAlert.SetHumidity; // Update High Humidity alert
+        ShouldUpdateModbus = true;}}  // Notify Holding Registers Changed
+  if(ModbusHighAlert.ClearHumidity!=highAlert.ClearHumidity){   // High Humidity alert Clear point changed
+      if(ModbusHighAlert.ClearHumidity>=0&&ModbusHighAlert.ClearHumidity<=100){ // Sanity check
+        highAlert.ClearHumidity = ModbusHighAlert.ClearHumidity; // Update High Humidity Clear point 
+        ShouldUpdateModbus = true;}} // Notify Holding Registers Changed
+  if(ModbusLowAlert.SetTemp!=LowAlert.SetTemp){  // Low temperature setpoint changed
+      if(ModbusLowAlert.SetTemp>=-20&&ModbusLowAlert.SetTemp<=200){ // Sanity check
+        LowAlert.SetTemp = ModbusLowAlert.SetTemp; // Update low temperature alert setpoint
+        ShouldUpdateModbus = true;}} // Notify Holding Registers Changed
+  if(ModbusLowAlert.ClearTemp!=LowAlert.ClearTemp){ // low temperature clear point changed
+      if(ModbusLowAlert.ClearTemp>=-20&&ModbusLowAlert.ClearTemp<=200){ // sanity check
+        LowAlert.ClearTemp = ModbusLowAlert.ClearTemp; // Update low temperature alert clear point 
+        ShouldUpdateModbus = true;}}// Notify Holding Registers Changed
+  if(ModbusLowAlert.SetHumidity!=LowAlert.SetHumidity){  // low humidity setpoint changed
+      if(ModbusLowAlert.SetHumidity>=0&&ModbusLowAlert.SetHumidity<=100){// Sanity check
+        LowAlert.SetHumidity = ModbusLowAlert.SetHumidity; // Update Low Humidity alert Setpoint
+        ShouldUpdateModbus = true;}}// Notify Holding Registers Changed
+  if(ModbusLowAlert.ClearHumidity!=LowAlert.ClearHumidity){  // low humidity clear point changed
+      if(ModbusLowAlert.ClearHumidity>=0&&ModbusLowAlert.ClearHumidity<=100){ // Sanity check
+        LowAlert.ClearHumidity = ModbusLowAlert.ClearHumidity; // Update Low Humidity Alert Setpoint
+        ShouldUpdateModbus = true;}}// Notify Holding Registers Changed
+  if(ShouldUpdateModbus){    // if any alert values changed, update the physical sensor. 
+    sht31.setHighAlert(&highAlert); // write high temperature/humidity values to the SHT31
+    sht31.setLowAlert(&LowAlert); // write the Low temperature/humidity values to the SHT31
+    ShouldUpdateModbus = false; // only update when alert values change 
   }
   #endif
 
