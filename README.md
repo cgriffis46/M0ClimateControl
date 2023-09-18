@@ -44,3 +44,9 @@
       0x15 - 
       0x16 - Humidity Low Clear
       0x17 - 
+      
+  OUTPUTS: 
+  	A0 - High Temperature Alert
+  	A1 - Low Temperature Alert
+  	A2 - High Humidity Alert
+  	A3 - Low Humidity Alert
