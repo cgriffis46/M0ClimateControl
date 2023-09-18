@@ -20,6 +20,7 @@
     TODO: Needs NVRAM to store setpoint values. 
       Need to implement SHT31 Interrupt function 
       Authenticate Modbus clients 
+      Implement temperature unit
 
     MODBUS REGISTERS
     INPUT REGISTERS 
