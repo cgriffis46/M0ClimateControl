@@ -21,6 +21,7 @@
       Need to implement SHT31 Interrupt function 
       Authenticate Modbus clients 
       Implement temperature unit
+      Implement datalogging
 
     MODBUS REGISTERS
     INPUT REGISTERS 
