@@ -138,15 +138,15 @@ void setup() {
   pinMode(_LOW_HUMIDITY_PIN, OUTPUT);
 
   // default values for Alerts 
-  LowAlert.SetTemp = 30;
-  LowAlert.ClearTemp = 29;
-  LowAlert.SetHumidity = 60;
-  LowAlert.ClearHumidity = 59;
+  LowAlert.SetTemp = 0;
+  LowAlert.ClearTemp = 5;
+  LowAlert.SetHumidity = 30;
+  LowAlert.ClearHumidity = 35;
 
-  highAlert.SetTemp = 20;
-  highAlert.ClearTemp = 19;
-  highAlert.SetHumidity = 50;
-  highAlert.ClearHumidity = 49;
+  highAlert.SetTemp = 30;
+  highAlert.ClearTemp = 25;
+  highAlert.SetHumidity = 90;
+  highAlert.ClearHumidity = 85;
 
   // Initialize SHT31 Temp/humidity sensor
   sht31.begin(0x44);
