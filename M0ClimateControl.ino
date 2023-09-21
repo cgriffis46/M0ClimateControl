@@ -45,6 +45,8 @@
   */
 #define USE_SHT31
 #define _USE_MODBUS true
+#define USE_I2C_EEPROM true
+#define _USE_RTC_PCF8523 true
 
 #define _HIGH_HEAT_PIN 0
 #define _LOW_HEAT_PIN 1
@@ -54,6 +56,56 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
+
+#define _MEM_HIGH_TEMP_SET 0x0200
+#define _MEM_HIGH_TEMP_CLEAR 0x0204
+#define _MEM_LOW_TEMP_SET 0x0208
+#define _MEM_LOW_TEMP_CLEAR 0x020C
+
+#define _MEM_HIGH_HUMIDITY_SET 0x0210
+#define _MEM_HIGH_HUMIDITY_CLEAR 0x0214
+#define _MEM_LOW_HUMIDITY_SET 0x0218
+#define _MEM_LOW_HUMIDITY_CLEAR 0x021C
+
+#define _HIGH_TEMP_SET_DEFAULT 80.0
+#define _HIGH_TEMP_CLEAR_DEFAULT 75.0
+#define _LOW_TEMP_SET_DEFAULT 60.0
+#define _LOW_TEMP_CLEAR_DEFAULT 65.0
+
+#define _HIGH_HUMIDITY_SET_DEFAULT 80.0
+#define _HIGH_HUMIDITY_CLEAR_DEFAULT 75.0
+#define _LOW_HUMIDITY_SET_DEFAULT 50.0
+#define _LOW_HUMIDITY_CLEAR_DEFAULT 55.0
+
+#ifdef _USE_DS3231
+  #include <RTClib.h>
+  RTC_DS3231 rtc;
+  #ifndef _USE_RTC
+    #define _USE_RTC true
+  #endif
+#endif
+
+#ifdef _USE_RTC_PCF8523
+  #ifndef _USE_RTC
+    #define _USE_RTC
+  #endif
+  #include "RTClib.h"
+  RTC_PCF8523 rtc;
+#endif
+
+#ifdef USE_I2C_EEPROM
+  #include <Adafruit_EEPROM_I2C.h>
+  Adafruit_EEPROM_I2C fram = Adafruit_EEPROM_I2C();
+#endif
+
+#ifdef USE_SPI_FRAM
+  #include <Adafruit_FRAM_SPI.h>
+  uint8_t FRAM_SCK = 14;
+  uint8_t FRAM_MISO = 12;
+  uint8_t FRAM_MOSI = 13;
+  uint8_t FRAM_CS = 15;
+  Adafruit_FRAM_SPI fram = Adafruit_FRAM_SPI(FRAM_SCK, FRAM_MISO, FRAM_MOSI, FRAM_CS);
+#endif
 
 #ifdef USE_SHT31
   #include "Adafruit_SHT31.h"
@@ -78,7 +130,7 @@
   #include <SPI.h>
   #include <Ethernet.h>
   #include <ArduinoModbus.h>
-
+  #include <EthernetUdp.h>
   #define _MODBUSINPUTREGISTERS 4 // Modbus Input Registers
   #define _MODBUSHOLDINGREGISTERS 16 // Modbus Holding Registers 
   #define _MODBUSCOILS 5 // Modbus Coils
@@ -111,6 +163,11 @@
   #define LED        13
 
 
+union{
+  float f;
+  uint8_t bytes[4];
+} floattobytearray;
+
 // Enter a MAC address and IP address for your controller below.
 // The IP address will be dependent on your local network:
 byte mac[] = {
@@ -125,11 +182,41 @@ IPAddress ip(192, 168, 1, 177);
 // (port 80 is default for HTTP):
 EthernetServer server(80);
 
+#include <NTPClient.h>
+
+DateTime now;
+DateTime ntptime;
+// WiFiUDP wifiUdp;
+EthernetUDP eth0udp;
+NTPClient timeClient(eth0udp);
+
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
   while(!Serial);
   SPI.begin();
+
+  #ifdef _USE_RTC
+    Serial.println("Initialize RTC");
+    if(rtc.begin(&Wire)){
+//      rtc.start();
+      now = rtc.now();
+  }
+  else {
+    Serial.println("Could not initialize RTC!");
+  }
+#endif // USE_RTC
+  // Initialize NVRAM
+  Serial.println("Initialize NVRAM");
+  if(fram.begin(0x50)){
+     //loadCredentials();            // Load WLAN credentials from network
+     //LoadSensorsFromDisk();
+     //LoadWundergroundCredentials();// Load Wunderground Interface credentials
+     loadAlertValues(&highAlert,&LowAlert);
+  }
+  else{
+    Serial.println("could not initialize fram");
+  }
 
   // Setup output pins
   pinMode(_HIGH_HEAT_PIN, OUTPUT);
@@ -138,15 +225,15 @@ void setup() {
   pinMode(_LOW_HUMIDITY_PIN, OUTPUT);
 
   // default values for Alerts 
-  LowAlert.SetTemp = 0;
-  LowAlert.ClearTemp = 5;
-  LowAlert.SetHumidity = 30;
-  LowAlert.ClearHumidity = 35;
+ // LowAlert.SetTemp = 0;
+ // LowAlert.ClearTemp = 5;
+ // LowAlert.SetHumidity = 30;
+ // LowAlert.ClearHumidity = 35;
 
-  highAlert.SetTemp = 30;
-  highAlert.ClearTemp = 25;
-  highAlert.SetHumidity = 90;
-  highAlert.ClearHumidity = 85;
+//  highAlert.SetTemp = 30;
+//  highAlert.ClearTemp = 25;
+//  highAlert.SetHumidity = 90;
+//  highAlert.ClearHumidity = 85;
 
   // Initialize SHT31 Temp/humidity sensor
   sht31.begin(0x44);
@@ -413,6 +500,9 @@ void loop() {
   if(ShouldUpdateModbus){    // if any alert values changed, update the physical sensor. 
     sht31.setHighAlert(&highAlert); // write high temperature/humidity values to the SHT31
     sht31.setLowAlert(&LowAlert); // write the Low temperature/humidity values to the SHT31
+
+    saveAlertValues(&highAlert,&LowAlert);
+
     ShouldUpdateModbus = false; // only update when alert values change 
   }
   #endif
@@ -436,6 +526,23 @@ if(sht31.FetchData(&t, &h)){
   }
 }
 
+     // timeClient must be called every loop to update NTP time 
+      if(timeClient.update()) {
+          if(timeClient.isTimeSet()){
+            // adjust the external RTC
+            #ifdef _USE_RTC
+              rtc.adjust(DateTime(timeClient.getEpochTime()));
+              now = rtc.now();
+            #endif
+            Serial.println("Updated RTC time!");
+            //String timedate = String(now.year())+String("-")+String(now.month())+String("-")+String(now.day())+String(" ")+String(now.hour())+String(":")+String(now.minute())+String(":")+String(now.second());
+            Serial.println(now.timestamp());
+            }
+      }
+      else {
+      //          Serial.println("Could not update NTP time!");
+      }
+
   // Set output pins 
   digitalWrite(_HIGH_HEAT_PIN, sht31.HighTempActive());
   digitalWrite(_LOW_HEAT_PIN, sht31.LowTempActive());
@@ -443,3 +550,4 @@ if(sht31.FetchData(&t, &h)){
   digitalWrite(_LOW_HUMIDITY_PIN, sht31.LowHumidityActive());
 
 }
+
