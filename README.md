@@ -16,7 +16,7 @@
     
     Released under GNU public license 
 
-    TODO: Needs NVRAM to store setpoint values. 
+    TODO:
       Need to implement SHT31 Interrupt function 
       Authenticate Modbus clients 
       Implement temperature unit
