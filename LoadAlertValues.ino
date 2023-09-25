@@ -11,6 +11,8 @@ bool loadAlertValues(SHT31_Alert_t *HighAlerts,SHT31_Alert_t *LowAlerts){
   uint32_t address;
 //  uint8_t buffer1[256];
   //uint8_t passwordbuffer[sizeof(password)];
+if(xSemaphoreTake(I2CBusSemaphore,100)){
+
 for(address = 0; address <sizeof(float);address++){
       #ifdef USE_SPI_FRAM
         floattobytearray.bytes[address] = fram.read8(_MEM_HIGH_TEMP_SET+address);
@@ -130,6 +132,9 @@ for(address = 0; address <sizeof(float);address++){
     //  Serial.println("could not read fram");
   }
   LowAlerts->ClearHumidity = floattobytearray.f;
-
+  
+  xSemaphoreGive( I2CBusSemaphore );
   return true;
+}
+  return false;
 }

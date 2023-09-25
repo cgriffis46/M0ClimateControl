@@ -236,6 +236,7 @@ void setup() {
   Serial.begin(115200);
   while(!Serial);
   SPI.begin();
+  I2CBusSemaphore = xSemaphoreCreateMutex();
 
   #ifdef _USE_RTC
     Serial.println("Initialize RTC");
@@ -270,8 +271,6 @@ void setup() {
   sht31.setHighAlert(&highAlert);
   sht31.setLowAlert(&LowAlert);
   sht31.PeriodicMode(_10mps_low_Res);
-
-  I2CBusSemaphore = xSemaphoreCreateMutex();
 
   xTaskCreate(xSHT31Task,     "Sensor Task",       256, NULL, tskIDLE_PRIORITY + 3, &xSHT31TaskHandle);
 

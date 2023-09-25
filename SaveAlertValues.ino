@@ -9,6 +9,7 @@ bool saveAlertValues(SHT31_Alert_t *HighAlerts,SHT31_Alert_t *LowAlerts){
 
   uint32_t address;
 
+if(xSemaphoreTake(I2CBusSemaphore,100)){
 
 floattobytearray.f = HighAlerts->SetTemp;
 for(address = 0; address <sizeof(float);address++){
@@ -130,6 +131,9 @@ for(address = 0; address <sizeof(float);address++){
       fram.write(_MEM_LOW_HUMIDITY_CLEAR+address,floattobytearray.bytes[address]);
     #endif 
   }
-  return true;
+    xSemaphoreGive( I2CBusSemaphore );
+    return true;
+  }
+  return false;
 }
 
