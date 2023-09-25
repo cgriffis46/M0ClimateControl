@@ -269,7 +269,7 @@ void setup() {
   sht31.setLowAlert(&LowAlert);
   sht31.PeriodicMode(_10mps_low_Res);
 
-  xTaskCreate(xSHT31Task,     "Sensor Task",       256, NULL, tskIDLE_PRIORITY + 2, &xSHT31TaskHandle);
+  xTaskCreate(xSHT31Task,     "Sensor Task",       256, NULL, tskIDLE_PRIORITY + 3, &xSHT31TaskHandle);
 
   pinMode(8, INPUT_PULLUP); // RF69 Enable pin
   pinMode(10, OUTPUT); // Ethernet Feather CS pin
@@ -295,7 +295,7 @@ void setup() {
   Serial.print("server is at ");
   Serial.println(Ethernet.localIP());
   HTTPClient.setConnectionTimeout(2000);
-  xTaskCreate(xHTTPUpdateTask,     "HTTP Update Task",       256, NULL, tskIDLE_PRIORITY + 5, &xHTTPClientTaskHandle);
+  xTaskCreate(xHTTPUpdateTask,     "HTTP Update Task",       256, NULL, tskIDLE_PRIORITY + 7, &xHTTPClientTaskHandle);
 
 #ifdef _USE_MODBUS
   // Configure Modbus Registers
@@ -304,13 +304,13 @@ void setup() {
   modbusTCPServer.configureDiscreteInputs(0x04, _MODBUSDISCRETEINPUTS);
   modbusTCPServer.configureHoldingRegisters(0x08,_MODBUSHOLDINGREGISTERS);
 
-  xTaskCreate(xModbusTask,     "Modbus Task",       256, NULL, tskIDLE_PRIORITY + 4, &xModbusTaskHandle);
+  xTaskCreate(xModbusTask,     "Modbus Task",       256, NULL, tskIDLE_PRIORITY + 6, &xModbusTaskHandle);
 #endif
 
   timeClient.begin();
-  xTaskCreate(xNTPClientTask,     "NTP Task",       256, NULL, tskIDLE_PRIORITY + 3, &xNTPClientTaskHandle);
+  xTaskCreate(xNTPClientTask,     "NTP Task",       256, NULL, tskIDLE_PRIORITY + 5, &xNTPClientTaskHandle);
 
-  xTaskCreate(xSetOutputPinsTask,     "NTP Task",       256, NULL, tskIDLE_PRIORITY + 6, &xSetOutputPinsTaskHandle);
+  xTaskCreate(xSetOutputPinsTask,     "NTP Task",       256, NULL, tskIDLE_PRIORITY + 10, &xSetOutputPinsTaskHandle);
 
   vTaskStartScheduler();
 
@@ -601,7 +601,7 @@ while(true){
       else {
       //          Serial.println("Could not update NTP time!");
       }
-  vTaskDelay( 1000/portTICK_PERIOD_MS ); 
+  vTaskDelay( 500/portTICK_PERIOD_MS ); 
     
   }
 }
