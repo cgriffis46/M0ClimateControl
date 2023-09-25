@@ -523,6 +523,9 @@ if(xSemaphoreTake(I2CBusSemaphore,10)){
       Serial.println("Failed to read humidity");
     }
   }
+  else {
+    Serial.println("Failed to read temp and humidity");
+  }
   xSemaphoreGive( I2CBusSemaphore );
   // Get current High and Low alert levels
   sht31.ReadHighAlert(&highAlert);
@@ -584,22 +587,24 @@ while(true){
       // close the connection:
       HTTPClient.stop();
     }
+    // 
     xSemaphoreGive( Eth0Semaphore );
     vTaskDelay( 250/portTICK_PERIOD_MS ); 
   }
-  vTaskDelay(1/portTICK_PERIOD_MS ); 
+  // We didn't get the semaphore, so sleep only 1ms
+  vTaskDelay(1/portTICK_PERIOD_MS );
 }
 }
 
 static void xNTPClientTask(void *pvParameters){
 while(true){
-
+if(xSemaphoreTake(Eth0Semaphore,5)){
        // timeClient must be called every loop to update NTP time 
       if(timeClient.update()) {
           if(timeClient.isTimeSet()){
             // adjust the external RTC
             #ifdef _USE_RTC
-              if(xSemaphoreTake(I2CBusSemaphore,10)){
+              if(xSemaphoreTake(I2CBusSemaphore,5)){
                 rtc.adjust(DateTime(timeClient.getEpochTime()));
                 xSemaphoreGive( I2CBusSemaphore );}
               now = rtc.now();
@@ -613,9 +618,13 @@ while(true){
       //          Serial.println("Could not update NTP time!");
       }
 
-  vTaskDelay( 500/portTICK_PERIOD_MS ); 
-    
+    vTaskDelay( 500/portTICK_PERIOD_MS );
+    xSemaphoreGive( Eth0Semaphore );
   }
+  else {
+    vTaskDelay( 100/portTICK_PERIOD_MS );
+  }
+}
 }
 
 static void xSetOutputPinsTask(void *pvParameters){
