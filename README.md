@@ -17,7 +17,8 @@
     Released under GNU public license 
 
     TODO:
-      Need to implement SHT31 Interrupt function 
+      Implement watchdog timers
+      implement SHT31 Interrupt function 
       Authenticate Modbus clients 
       Implement temperature unit
       Implement datalogging

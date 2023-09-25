@@ -1,25 +1,3 @@
-#include <FreeRTOS.h>
-#include <FreeRTOSConfig.h>
-#include <FreeRTOS_SAMD21.h>
-#include <croutine.h>
-#include <deprecated_definitions.h>
-#include <error_hooks.h>
-#include <event_groups.h>
-#include <list.h>
-#include <message_buffer.h>
-#include <mpu_prototypes.h>
-#include <mpu_wrappers.h>
-#include <portable.h>
-#include <portmacro.h>
-#include <projdefs.h>
-#include <queue.h>
-#include <runTimeStats_hooks.h>
-#include <semphr.h>
-#include <stack_macros.h>
-#include <stream_buffer.h>
-#include <task.h>
-#include <timers.h>
-
   /*
     Modbus Climate Controller
     Cory S Griffis
@@ -74,6 +52,28 @@
 #define _LOW_HEAT_PIN 1
 #define _HIGH_HUMIDITY_PIN 2
 #define _LOW_HUMIDITY_PIN 3
+
+#include <FreeRTOS.h>
+#include <FreeRTOSConfig.h>
+#include <FreeRTOS_SAMD21.h>
+#include <croutine.h>
+#include <deprecated_definitions.h>
+#include <error_hooks.h>
+#include <event_groups.h>
+#include <list.h>
+#include <message_buffer.h>
+#include <mpu_prototypes.h>
+#include <mpu_wrappers.h>
+#include <portable.h>
+#include <portmacro.h>
+#include <projdefs.h>
+#include <queue.h>
+#include <runTimeStats_hooks.h>
+#include <semphr.h>
+#include <stack_macros.h>
+#include <stream_buffer.h>
+#include <task.h>
+#include <timers.h>
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -543,7 +543,7 @@ while(true){
     if (HTTPClient.connected()) {
       while (HTTPClient.available()) {
         char c = HTTPClient.read();
-        Serial.write(c);
+        //Serial.write(c);
         // if you've gotten to the end of the line (received a newline
         // character) and the line is blank, the HTTP request has ended,
         // so you can send a reply
