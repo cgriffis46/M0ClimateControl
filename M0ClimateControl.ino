@@ -47,7 +47,7 @@
 #define _USE_MODBUS true
 #define USE_I2C_EEPROM true
 #define _USE_RTC_PCF8523 true
-
+#define SDchipSelect 10
 #define _HIGH_HEAT_PIN 0
 #define _LOW_HEAT_PIN 1
 #define _HIGH_HUMIDITY_PIN 2
@@ -78,6 +78,8 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
+
+#include <SD.h>
 
 static void xHTTPUpdateTask(void *pvParameters);
 
@@ -235,7 +237,7 @@ SemaphoreHandle_t Eth0Semaphore;
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
-  while(!Serial);
+//  while(!Serial);
   SPI.begin();
   I2CBusSemaphore = xSemaphoreCreateMutex();
   Eth0Semaphore = xSemaphoreCreateMutex();
@@ -277,6 +279,8 @@ void setup() {
 
   pinMode(8, INPUT_PULLUP); // RF69 Enable pin
   pinMode(10, OUTPUT); // Ethernet Feather CS pin
+
+  SD.begin(SDchipSelect);
 
   // Initialize Ethernet 
   Ethernet.init(10);
@@ -563,6 +567,7 @@ while(true){
           HTTPClient.println();
           HTTPClient.println("<!DOCTYPE HTML>");
           HTTPClient.println("<html>");
+          /*
           // output the value of each analog input pin
           for (int analogChannel = 0; analogChannel < 6; analogChannel++) {
             int sensorReading = analogRead(analogChannel);
@@ -571,7 +576,7 @@ while(true){
             HTTPClient.print(" is ");
             HTTPClient.print(sensorReading);
             HTTPClient.println("<br />");
-          }
+          } */
           HTTPClient.println("</html>");
           break;
         }
@@ -630,7 +635,6 @@ if(shouldUpdateRTC){
   if(xSemaphoreTake(I2CBusSemaphore,5)){
   rtc.adjust(DateTime(timeClient.getEpochTime()));
   xSemaphoreGive( I2CBusSemaphore );}
-  //now = rtc.now();
   vTaskDelay( 500/portTICK_PERIOD_MS );
 }
 else {
@@ -651,5 +655,8 @@ while(true){
 }
 }
 
+static void xDataloggerTask(void *pvParameters){
 
+
+}
 
