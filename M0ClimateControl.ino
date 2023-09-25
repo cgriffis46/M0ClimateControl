@@ -230,6 +230,7 @@ static void xSetOutputPinsTask(void *pvParameters);
 TaskHandle_t xSetOutputPinsTaskHandle;
 
 SemaphoreHandle_t I2CBusSemaphore;
+SemaphoreHandle_t Eth0Semaphore;
 
 void setup() {
   // put your setup code here, to run once:
@@ -237,7 +238,7 @@ void setup() {
   while(!Serial);
   SPI.begin();
   I2CBusSemaphore = xSemaphoreCreateMutex();
-
+  Eth0Semaphore = xSemaphoreCreateMutex();
   #ifdef _USE_RTC
     Serial.println("Initialize RTC");
     if(rtc.begin(&Wire)){
@@ -298,7 +299,7 @@ void setup() {
   Serial.print("server is at ");
   Serial.println(Ethernet.localIP());
   HTTPClient.setConnectionTimeout(2000);
-  xTaskCreate(xHTTPUpdateTask,     "HTTP Update Task",       256, NULL, tskIDLE_PRIORITY + 7, &xHTTPClientTaskHandle);
+  xTaskCreate(xHTTPUpdateTask,     "HTTP Update Task",       256, NULL, tskIDLE_PRIORITY + 9, &xHTTPClientTaskHandle);
 
 #ifdef _USE_MODBUS
   // Configure Modbus Registers
@@ -307,13 +308,13 @@ void setup() {
   modbusTCPServer.configureDiscreteInputs(0x04, _MODBUSDISCRETEINPUTS);
   modbusTCPServer.configureHoldingRegisters(0x08,_MODBUSHOLDINGREGISTERS);
 
-  xTaskCreate(xModbusTask,     "Modbus Task",       256, NULL, tskIDLE_PRIORITY + 6, &xModbusTaskHandle);
+  xTaskCreate(xModbusTask,     "Modbus Task",       256, NULL, tskIDLE_PRIORITY + 8, &xModbusTaskHandle);
 #endif
 
   timeClient.begin();
   xTaskCreate(xNTPClientTask,     "NTP Task",       256, NULL, tskIDLE_PRIORITY + 5, &xNTPClientTaskHandle);
 
-  xTaskCreate(xSetOutputPinsTask,     "NTP Task",       256, NULL, tskIDLE_PRIORITY + 10, &xSetOutputPinsTaskHandle);
+  xTaskCreate(xSetOutputPinsTask,     "NTP Task",       256, NULL, tskIDLE_PRIORITY + 8, &xSetOutputPinsTaskHandle);
 
   vTaskStartScheduler();
 
@@ -328,23 +329,19 @@ while(true){
 
   FloatToInt16 conversion;
 
-  // Update Modbus Input Registers
-
-    // Write Current Temperature to Modbus
-    conversion.f = temperature;
-    ModbusInputRegisters[0] = conversion.ModbusInt[0];
-    ModbusInputRegisters[1] = conversion.ModbusInt[1];
-
-    // Write Current Humidity to Modbus
-    conversion.f = humidity;
-    ModbusInputRegisters[2] = conversion.ModbusInt[0];
-    ModbusInputRegisters[3] = conversion.ModbusInt[1];
-
     // Write Input Registers to Modbus
     // 0x00 - Temperature (32 bit float)
     // 0x01 - 
     // 0x02 - Humidity (32 bit float)
     // 0x03 - 
+    // Write Current Temperature to Modbus
+    conversion.f = temperature;
+    ModbusInputRegisters[0] = conversion.ModbusInt[0];
+    ModbusInputRegisters[1] = conversion.ModbusInt[1];
+    // Write Current Humidity to Modbus
+    conversion.f = humidity;
+    ModbusInputRegisters[2] = conversion.ModbusInt[0];
+    ModbusInputRegisters[3] = conversion.ModbusInt[1];
     modbusTCPServer.writeInputRegisters(0x00, ModbusInputRegisters, _MODBUSINPUTREGISTERS);
 
     // Write Discrete Input registers to Modbus 
@@ -356,7 +353,6 @@ while(true){
     modbusTCPServer.discreteInputWrite(0x05, sht31.LowTempActive()); // Low Temperature alert is Active
     modbusTCPServer.discreteInputWrite(0x06, sht31.HighHumidityActive()); // High Humidity alert is Active
     modbusTCPServer.discreteInputWrite(0x07, sht31.LowHumidityActive()); // Low Humidity alert is Active
-
 
     // Write current High Temperature setpoint to Modbus 
     conversion.f = highAlert.SetTemp;
@@ -399,19 +395,21 @@ while(true){
     modbusTCPServer.holdingRegisterWrite(0x17, conversion.ModbusInt[1]);
 
   // Check if we have a modbus client connected and poll Modbus if necessary
-  if(ModbusClient.connected()){ // client is already connected 
-    modbusTCPServer.poll();
-  } else {
-    // listen for incoming clients
-    ModbusClient = ethServer.available();
-    if(ModbusClient) {
-      // let the Modbus TCP accept the connection 
-      modbusTCPServer.accept(ModbusClient);
-      // poll for Modbus TCP requests, while client connected
+  if(xSemaphoreTake(Eth0Semaphore,100)){
+    if(ModbusClient.connected()){ // client is already connected 
       modbusTCPServer.poll();
+    } else {
+      // listen for incoming clients
+      ModbusClient = ethServer.available();
+      if(ModbusClient) {
+        // let the Modbus TCP accept the connection 
+        modbusTCPServer.accept(ModbusClient);
+        // poll for Modbus TCP requests, while client connected
+        modbusTCPServer.poll();
+      } 
     }
+    xSemaphoreGive( Eth0Semaphore );
   }
-
   // Read Modbus Holding registers 
 
   // Read High Temperature alert Setpoint
@@ -497,7 +495,7 @@ while(true){
     ShouldUpdateModbus = false; // only update when alert values change 
   }
 
-  vTaskDelay( (200 * 1000) / portTICK_PERIOD_US );  
+  vTaskDelay( (250 * 1000) / portTICK_PERIOD_US );  
 
 }
 
@@ -536,11 +534,12 @@ if(xSemaphoreTake(I2CBusSemaphore,10)){
 
 static void xHTTPUpdateTask(void *pvParameters){
 while(true){
-  HTTPClient = server.available();
-  if (HTTPClient) {
-    Serial.println("new client");
-    // an HTTP request ends with a blank line
-    bool currentLineIsBlank = true;
+  if(xSemaphoreTake(Eth0Semaphore,1)){
+    HTTPClient = server.available();
+    if (HTTPClient) {
+      Serial.println("new client");
+      // an HTTP request ends with a blank line
+      bool currentLineIsBlank = true;
     if (HTTPClient.connected()) {
       while (HTTPClient.available()) {
         char c = HTTPClient.read();
@@ -572,20 +571,23 @@ while(true){
         if (c == '\n') {
           // you're starting a new line
           currentLineIsBlank = true;
-        } else if (c != '\r') {
+        } 
+        else if (c != '\r') {
           // you've gotten a character on the current line
           currentLineIsBlank = false;
         }
       }
          //vTaskDelay( 2/portTICK_PERIOD_MS );  
     }
-    // give the web browser time to receive the data
-    delay(1);
-    // close the connection:
-    HTTPClient.stop();
+      // give the web browser time to receive the data
+      delay(1);
+      // close the connection:
+      HTTPClient.stop();
+    }
+    xSemaphoreGive( Eth0Semaphore );
+    vTaskDelay( 250/portTICK_PERIOD_MS ); 
   }
-  vTaskDelay( 150/portTICK_PERIOD_MS ); 
-
+  vTaskDelay(1/portTICK_PERIOD_MS ); 
 }
 }
 
@@ -626,3 +628,6 @@ while(true){
   vTaskDelay( 1000/portTICK_PERIOD_US ); 
 }
 }
+
+
+
