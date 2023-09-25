@@ -1,3 +1,25 @@
+#include <FreeRTOS.h>
+#include <FreeRTOSConfig.h>
+#include <FreeRTOS_SAMD21.h>
+#include <croutine.h>
+#include <deprecated_definitions.h>
+#include <error_hooks.h>
+#include <event_groups.h>
+#include <list.h>
+#include <message_buffer.h>
+#include <mpu_prototypes.h>
+#include <mpu_wrappers.h>
+#include <portable.h>
+#include <portmacro.h>
+#include <projdefs.h>
+#include <queue.h>
+#include <runTimeStats_hooks.h>
+#include <semphr.h>
+#include <stack_macros.h>
+#include <stream_buffer.h>
+#include <task.h>
+#include <timers.h>
+
   /*
     Modbus Climate Controller
     Cory S Griffis
@@ -57,6 +79,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+static void xHTTPUpdateTask(void *pvParameters);
+
 #define _MEM_HIGH_TEMP_SET 0x0200
 #define _MEM_HIGH_TEMP_CLEAR 0x0204
 #define _MEM_LOW_TEMP_SET 0x0208
@@ -109,7 +133,7 @@
 
 #ifdef USE_SHT31
   #include "Adafruit_SHT31.h"
-  
+  static void xSHT31Task(void *pvParameters);
   Adafruit_SHT31 sht31 = Adafruit_SHT31();
   bool enableHeater = false;
   uint8_t loopCnt = 0;
@@ -117,6 +141,8 @@
   float temperature, humidity;
 
   SHT31_Alert_t highAlert,LowAlert;
+
+  TaskHandle_t xSHT31TaskHandle;
 
   #ifndef _USE_TH_SENSOR
     #define _USE_TH_SENSOR
@@ -127,6 +153,8 @@
 #endif
 
 #ifdef _USE_MODBUS
+  static void xModbusTask(void *pvParameters);
+
   #include <SPI.h>
   #include <Ethernet.h>
   #include <ArduinoModbus.h>
@@ -137,8 +165,10 @@
   #define _MODBUSDISCRETEINPUTS 4 // Modbus Discrete Inputs 
 
   EthernetServer ethServer(502); // Ethernet server 
-
+  EthernetClient ModbusClient;
   ModbusTCPServer modbusTCPServer;
+
+  TaskHandle_t xModbusTaskHandle;
 
   bool ModbusDiscreteInputs[_MODBUSDISCRETEINPUTS];
   bool ModbusCoils[_MODBUSCOILS];
@@ -162,7 +192,7 @@
   #define RFM69_RST   4
   #define LED        13
 
-
+// Convert float to byte array for 8-bit EEPROM
 union{
   float f;
   uint8_t bytes[4];
@@ -189,6 +219,15 @@ DateTime ntptime;
 // WiFiUDP wifiUdp;
 EthernetUDP eth0udp;
 NTPClient timeClient(eth0udp);
+
+static void xNTPClientTask(void *pvParameters);
+TaskHandle_t xNTPClientTaskHandle;
+
+EthernetClient HTTPClient;
+TaskHandle_t xHTTPClientTaskHandle;
+
+static void xSetOutputPinsTask(void *pvParameters);
+TaskHandle_t xSetOutputPinsTaskHandle;
 
 void setup() {
   // put your setup code here, to run once:
@@ -224,22 +263,13 @@ void setup() {
   pinMode(_HIGH_HUMIDITY_PIN, OUTPUT);
   pinMode(_LOW_HUMIDITY_PIN, OUTPUT);
 
-  // default values for Alerts 
- // LowAlert.SetTemp = 0;
- // LowAlert.ClearTemp = 5;
- // LowAlert.SetHumidity = 30;
- // LowAlert.ClearHumidity = 35;
-
-//  highAlert.SetTemp = 30;
-//  highAlert.ClearTemp = 25;
-//  highAlert.SetHumidity = 90;
-//  highAlert.ClearHumidity = 85;
-
   // Initialize SHT31 Temp/humidity sensor
   sht31.begin(0x44);
   sht31.setHighAlert(&highAlert);
   sht31.setLowAlert(&LowAlert);
   sht31.PeriodicMode(_10mps_low_Res);
+
+  xTaskCreate(xSHT31Task,     "Sensor Task",       256, NULL, tskIDLE_PRIORITY + 2, &xSHT31TaskHandle);
 
   pinMode(8, INPUT_PULLUP); // RF69 Enable pin
   pinMode(10, OUTPUT); // Ethernet Feather CS pin
@@ -264,6 +294,8 @@ void setup() {
   server.begin();
   Serial.print("server is at ");
   Serial.println(Ethernet.localIP());
+  HTTPClient.setConnectionTimeout(2000);
+  xTaskCreate(xHTTPUpdateTask,     "HTTP Update Task",       256, NULL, tskIDLE_PRIORITY + 5, &xHTTPClientTaskHandle);
 
 #ifdef _USE_MODBUS
   // Configure Modbus Registers
@@ -271,64 +303,25 @@ void setup() {
   modbusTCPServer.configureInputRegisters(0x00, _MODBUSINPUTREGISTERS);
   modbusTCPServer.configureDiscreteInputs(0x04, _MODBUSDISCRETEINPUTS);
   modbusTCPServer.configureHoldingRegisters(0x08,_MODBUSHOLDINGREGISTERS);
+
+  xTaskCreate(xModbusTask,     "Modbus Task",       256, NULL, tskIDLE_PRIORITY + 4, &xModbusTaskHandle);
 #endif
+
+  timeClient.begin();
+  xTaskCreate(xNTPClientTask,     "NTP Task",       256, NULL, tskIDLE_PRIORITY + 3, &xNTPClientTaskHandle);
+
+  xTaskCreate(xSetOutputPinsTask,     "NTP Task",       256, NULL, tskIDLE_PRIORITY + 6, &xSetOutputPinsTaskHandle);
+
+  vTaskStartScheduler();
 
 }
 
 void loop() {
+}
 
-  // put your main code here, to run repeatedly:
-  // listen for incoming clients
-  EthernetClient client = server.available();
-  if (client) {
-    Serial.println("new client");
-    // an HTTP request ends with a blank line
-    bool currentLineIsBlank = true;
-    while (client.connected()) {
-      if (client.available()) {
-        char c = client.read();
-        Serial.write(c);
-        // if you've gotten to the end of the line (received a newline
-        // character) and the line is blank, the HTTP request has ended,
-        // so you can send a reply
-        if (c == '\n' && currentLineIsBlank) {
-          // send a standard HTTP response header
-          client.println("HTTP/1.1 200 OK");
-          client.println("Content-Type: text/html");
-          client.println("Connection: close");  // the connection will be closed after completion of the response
-          client.println("Refresh: 5");  // refresh the page automatically every 5 sec
-          client.println();
-          client.println("<!DOCTYPE HTML>");
-          client.println("<html>");
-//          // output the value of each analog input pin
-//          for (int analogChannel = 0; analogChannel < 6; analogChannel++) {
-//            int sensorReading = analogRead(analogChannel);
-//            client.print("analog input ");
-//            client.print(analogChannel);
-//            client.print(" is ");
-//            client.print(sensorReading);
-//            client.println("<br />");
-//          }
-          client.println("</html>");
-          break;
-        }
-        if (c == '\n') {
-//          // you're starting a new line
-          currentLineIsBlank = true;
-        } else if (c != '\r') {
-          // you've gotten a character on the current line
-          currentLineIsBlank = false;
-        }
-      }
-    }
-    // give the web browser time to receive the data
-    delay(1);
-    // close the connection:
-    client.stop();
-    Serial.println("client disconnected");
-  }
-
-  #ifdef _USE_MODBUS
+#ifdef _USE_MODBUS
+static void xModbusTask(void *pvParameters){
+while(true){
 
   FloatToInt16 conversion;
 
@@ -361,11 +354,6 @@ void loop() {
     modbusTCPServer.discreteInputWrite(0x06, sht31.HighHumidityActive()); // High Humidity alert is Active
     modbusTCPServer.discreteInputWrite(0x07, sht31.LowHumidityActive()); // Low Humidity alert is Active
 
-    // Write Current Modbus Holding Registers 
-
-    // Get current High and Low alert levels
-    sht31.ReadHighAlert(&highAlert);
-    sht31.ReadLowAlert(&LowAlert);
 
     // Write current High Temperature setpoint to Modbus 
     conversion.f = highAlert.SetTemp;
@@ -408,14 +396,14 @@ void loop() {
     modbusTCPServer.holdingRegisterWrite(0x17, conversion.ModbusInt[1]);
 
   // Check if we have a modbus client connected and poll Modbus if necessary
-  if(client.connected()){ // client is already connected 
+  if(ModbusClient.connected()){ // client is already connected 
     modbusTCPServer.poll();
   } else {
     // listen for incoming clients
-    EthernetClient client = ethServer.available();
-    if(client) {
+    ModbusClient = ethServer.available();
+    if(ModbusClient) {
       // let the Modbus TCP accept the connection 
-      modbusTCPServer.accept(client);
+      modbusTCPServer.accept(ModbusClient);
       // poll for Modbus TCP requests, while client connected
       modbusTCPServer.poll();
     }
@@ -505,28 +493,99 @@ void loop() {
 
     ShouldUpdateModbus = false; // only update when alert values change 
   }
-  #endif
 
-// Read SHT31 sensor and update temperature and humidity. 
-  float t, h;
-if(sht31.FetchData(&t, &h)){
+  vTaskDelay( (200 * 1000) / portTICK_PERIOD_US );  
 
-  if (! isnan(t)) {  // check if 'is not a number'
-    temperature = t;
-    Serial.print("Temp *C = "); Serial.print(temperature); Serial.print("\t\t");
-  } else { 
-    Serial.println("Failed to read temperature");
-  }
-  
-  if (! isnan(h)) {  // check if 'is not a number'
-    humidity = h;
-    Serial.print("Hum. % = "); Serial.println(humidity);
-  } else { 
-    Serial.println("Failed to read humidity");
-  }
 }
 
-     // timeClient must be called every loop to update NTP time 
+}
+  #endif
+
+static void xSHT31Task(void *pvParameters){
+while(true){
+  // Read SHT31 sensor and update temperature and humidity. 
+  float t, h;
+  if(sht31.FetchData(&t, &h)){
+
+    if (! isnan(t)) {  // check if 'is not a number'
+      temperature = t;
+      Serial.print("Temp *C = "); Serial.print(temperature); Serial.print("\t\t");
+    } else { 
+      Serial.println("Failed to read temperature");
+    }
+  
+    if (! isnan(h)) {  // check if 'is not a number'
+      humidity = h;
+      Serial.print("Hum. % = "); Serial.println(humidity);
+    } else { 
+      Serial.println("Failed to read humidity");
+    }
+  }
+  // Get current High and Low alert levels
+  sht31.ReadHighAlert(&highAlert);
+  sht31.ReadLowAlert(&LowAlert);
+  vTaskDelay( (1000 * 1000) / portTICK_PERIOD_US ); 
+}
+}
+
+static void xHTTPUpdateTask(void *pvParameters){
+while(true){
+  HTTPClient = server.available();
+  if (HTTPClient) {
+    Serial.println("new client");
+    // an HTTP request ends with a blank line
+    bool currentLineIsBlank = true;
+    if (HTTPClient.connected()) {
+      while (HTTPClient.available()) {
+        char c = HTTPClient.read();
+        Serial.write(c);
+        // if you've gotten to the end of the line (received a newline
+        // character) and the line is blank, the HTTP request has ended,
+        // so you can send a reply
+        if (c == '\n' && currentLineIsBlank) {
+          // send a standard HTTP response header
+          HTTPClient.println("HTTP/1.1 200 OK");
+          HTTPClient.println("Content-Type: text/html");
+          HTTPClient.println("Connection: close");  // the connection will be closed after completion of the response
+          HTTPClient.println("Refresh: 5");  // refresh the page automatically every 5 sec
+          HTTPClient.println();
+          HTTPClient.println("<!DOCTYPE HTML>");
+          HTTPClient.println("<html>");
+          // output the value of each analog input pin
+          for (int analogChannel = 0; analogChannel < 6; analogChannel++) {
+            int sensorReading = analogRead(analogChannel);
+            HTTPClient.print("analog input ");
+            HTTPClient.print(analogChannel);
+            HTTPClient.print(" is ");
+            HTTPClient.print(sensorReading);
+            HTTPClient.println("<br />");
+          }
+          HTTPClient.println("</html>");
+          break;
+        }
+        if (c == '\n') {
+          // you're starting a new line
+          currentLineIsBlank = true;
+        } else if (c != '\r') {
+          // you've gotten a character on the current line
+          currentLineIsBlank = false;
+        }
+      }
+         //vTaskDelay( 2/portTICK_PERIOD_MS );  
+    }
+    // give the web browser time to receive the data
+    delay(1);
+    // close the connection:
+    HTTPClient.stop();
+  }
+  vTaskDelay( 150/portTICK_PERIOD_MS ); 
+
+}
+}
+
+static void xNTPClientTask(void *pvParameters){
+while(true){
+       // timeClient must be called every loop to update NTP time 
       if(timeClient.update()) {
           if(timeClient.isTimeSet()){
             // adjust the external RTC
@@ -542,12 +601,18 @@ if(sht31.FetchData(&t, &h)){
       else {
       //          Serial.println("Could not update NTP time!");
       }
+  vTaskDelay( 1000/portTICK_PERIOD_MS ); 
+    
+  }
+}
 
+static void xSetOutputPinsTask(void *pvParameters){
+while(true){
   // Set output pins 
   digitalWrite(_HIGH_HEAT_PIN, sht31.HighTempActive());
   digitalWrite(_LOW_HEAT_PIN, sht31.LowTempActive());
   digitalWrite(_HIGH_HUMIDITY_PIN,sht31.HighHumidityActive());
   digitalWrite(_LOW_HUMIDITY_PIN, sht31.LowHumidityActive());
-
+  vTaskDelay( 1000/portTICK_PERIOD_US ); 
 }
-
+}
