@@ -602,32 +602,41 @@ while(true){
 
 static void xNTPClientTask(void *pvParameters){
 while(true){
+bool shouldUpdateRTC = false;
+
 if(xSemaphoreTake(Eth0Semaphore,1)){
        // timeClient must be called every loop to update NTP time 
       if(timeClient.update()) {
           if(timeClient.isTimeSet()){
+            shouldUpdateRTC = true;
             // adjust the external RTC
-            #ifdef _USE_RTC
-              if(xSemaphoreTake(I2CBusSemaphore,5)){
-                rtc.adjust(DateTime(timeClient.getEpochTime()));
-                xSemaphoreGive( I2CBusSemaphore );}
-              now = rtc.now();
-            #endif
-            Serial.println("Updated RTC time!");
+
+            //Serial.println("Updated RTC time!");
             //String timedate = String(now.year())+String("-")+String(now.month())+String("-")+String(now.day())+String(" ")+String(now.hour())+String(":")+String(now.minute())+String(":")+String(now.second());
-            Serial.println(now.timestamp());
+            //Serial.println(now.timestamp());
             }
       }
       else {
       //          Serial.println("Could not update NTP time!");
       }
-
-    vTaskDelay( 500/portTICK_PERIOD_MS );
     xSemaphoreGive( Eth0Semaphore );
   }
   else {
-    vTaskDelay( 100/portTICK_PERIOD_MS );
+    shouldUpdateRTC = false;
   }
+
+#ifdef _USE_RTC
+if(shouldUpdateRTC){
+  if(xSemaphoreTake(I2CBusSemaphore,5)){
+  rtc.adjust(DateTime(timeClient.getEpochTime()));
+  xSemaphoreGive( I2CBusSemaphore );}
+  //now = rtc.now();
+  vTaskDelay( 500/portTICK_PERIOD_MS );
+}
+else {
+  vTaskDelay( 500/portTICK_PERIOD_MS );
+}
+#endif
 }
 }
 
