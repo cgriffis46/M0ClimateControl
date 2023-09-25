@@ -229,6 +229,8 @@ TaskHandle_t xHTTPClientTaskHandle;
 static void xSetOutputPinsTask(void *pvParameters);
 TaskHandle_t xSetOutputPinsTaskHandle;
 
+SemaphoreHandle_t I2CBusSemaphore;
+
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
@@ -268,6 +270,8 @@ void setup() {
   sht31.setHighAlert(&highAlert);
   sht31.setLowAlert(&LowAlert);
   sht31.PeriodicMode(_10mps_low_Res);
+
+  I2CBusSemaphore = xSemaphoreCreateMutex();
 
   xTaskCreate(xSHT31Task,     "Sensor Task",       256, NULL, tskIDLE_PRIORITY + 3, &xSHT31TaskHandle);
 
@@ -503,8 +507,9 @@ while(true){
 
 static void xSHT31Task(void *pvParameters){
 while(true){
-  // Read SHT31 sensor and update temperature and humidity. 
-  float t, h;
+// Read SHT31 sensor and update temperature and humidity. 
+float t, h;
+if(xSemaphoreTake(I2CBusSemaphore,10)){
   if(sht31.FetchData(&t, &h)){
 
     if (! isnan(t)) {  // check if 'is not a number'
@@ -521,10 +526,12 @@ while(true){
       Serial.println("Failed to read humidity");
     }
   }
+  xSemaphoreGive( I2CBusSemaphore );
   // Get current High and Low alert levels
   sht31.ReadHighAlert(&highAlert);
   sht31.ReadLowAlert(&LowAlert);
-  vTaskDelay( (1000 * 1000) / portTICK_PERIOD_US ); 
+}
+  vTaskDelay( (1000 * 1000) / portTICK_PERIOD_US );
 }
 }
 
@@ -585,12 +592,15 @@ while(true){
 
 static void xNTPClientTask(void *pvParameters){
 while(true){
+
        // timeClient must be called every loop to update NTP time 
       if(timeClient.update()) {
           if(timeClient.isTimeSet()){
             // adjust the external RTC
             #ifdef _USE_RTC
-              rtc.adjust(DateTime(timeClient.getEpochTime()));
+              if(xSemaphoreTake(I2CBusSemaphore,10)){
+                rtc.adjust(DateTime(timeClient.getEpochTime()));
+                xSemaphoreGive( I2CBusSemaphore );}
               now = rtc.now();
             #endif
             Serial.println("Updated RTC time!");
@@ -601,6 +611,7 @@ while(true){
       else {
       //          Serial.println("Could not update NTP time!");
       }
+
   vTaskDelay( 500/portTICK_PERIOD_MS ); 
     
   }
