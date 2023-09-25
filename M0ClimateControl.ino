@@ -326,9 +326,9 @@ void loop() {
 #ifdef _USE_MODBUS
 static void xModbusTask(void *pvParameters){
 while(true){
-
-  FloatToInt16 conversion;
-
+// Check if we have a modbus client connected and poll Modbus if necessary
+if(xSemaphoreTake(Eth0Semaphore,10)){
+    FloatToInt16 conversion;
     // Write Input Registers to Modbus
     // 0x00 - Temperature (32 bit float)
     // 0x01 - 
@@ -394,11 +394,10 @@ while(true){
     modbusTCPServer.holdingRegisterWrite(0x16, conversion.ModbusInt[0]);
     modbusTCPServer.holdingRegisterWrite(0x17, conversion.ModbusInt[1]);
 
-  // Check if we have a modbus client connected and poll Modbus if necessary
-  if(xSemaphoreTake(Eth0Semaphore,100)){
     if(ModbusClient.connected()){ // client is already connected 
       modbusTCPServer.poll();
-    } else {
+    } else 
+    {
       // listen for incoming clients
       ModbusClient = ethServer.available();
       if(ModbusClient) {
@@ -408,8 +407,6 @@ while(true){
         modbusTCPServer.poll();
       } 
     }
-    xSemaphoreGive( Eth0Semaphore );
-  }
   // Read Modbus Holding registers 
 
   // Read High Temperature alert Setpoint
@@ -495,7 +492,14 @@ while(true){
     ShouldUpdateModbus = false; // only update when alert values change 
   }
 
-  vTaskDelay( (250 * 1000) / portTICK_PERIOD_US );  
+    // give up the semaphore and sleep 250ms
+    xSemaphoreGive(Eth0Semaphore);
+    vTaskDelay( (250 * 1000) / portTICK_PERIOD_US );  
+  } 
+  else {
+    // Did not get the semaphore, sleep 1 ms. 
+    vTaskDelay( (1 * 1000) / portTICK_PERIOD_US );  
+  }
 
 }
 
@@ -506,7 +510,7 @@ static void xSHT31Task(void *pvParameters){
 while(true){
 // Read SHT31 sensor and update temperature and humidity. 
 float t, h;
-if(xSemaphoreTake(I2CBusSemaphore,10)){
+if(xSemaphoreTake(I2CBusSemaphore,1)){
   if(sht31.FetchData(&t, &h)){
 
     if (! isnan(t)) {  // check if 'is not a number'
@@ -537,7 +541,7 @@ if(xSemaphoreTake(I2CBusSemaphore,10)){
 
 static void xHTTPUpdateTask(void *pvParameters){
 while(true){
-  if(xSemaphoreTake(Eth0Semaphore,1)){
+  if(xSemaphoreTake(Eth0Semaphore,5)){
     HTTPClient = server.available();
     if (HTTPClient) {
       Serial.println("new client");
@@ -587,7 +591,7 @@ while(true){
       // close the connection:
       HTTPClient.stop();
     }
-    // 
+    // Give up the semaphore and sleep 250ms
     xSemaphoreGive( Eth0Semaphore );
     vTaskDelay( 250/portTICK_PERIOD_MS ); 
   }
@@ -598,7 +602,7 @@ while(true){
 
 static void xNTPClientTask(void *pvParameters){
 while(true){
-if(xSemaphoreTake(Eth0Semaphore,5)){
+if(xSemaphoreTake(Eth0Semaphore,1)){
        // timeClient must be called every loop to update NTP time 
       if(timeClient.update()) {
           if(timeClient.isTimeSet()){
