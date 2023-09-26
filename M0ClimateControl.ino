@@ -124,18 +124,18 @@
 
 #ifdef USE_I2C_EEPROM
 // NVRAM definition for I2C EEPROM
-  #include <Adafruit_EEPROM_I2C.h>
-  Adafruit_EEPROM_I2C fram = Adafruit_EEPROM_I2C();
+  #include <Adafruit_EEPROM_I2C.h> // EEPROM Library
+  Adafruit_EEPROM_I2C fram = Adafruit_EEPROM_I2C(); // EEPROM Object
 #endif
 
 #ifdef USE_SPI_FRAM
 // NVRAM definition (if using SPI FRAM)
   #include <Adafruit_FRAM_SPI.h>
-  uint8_t FRAM_SCK = 14;
-  uint8_t FRAM_MISO = 12;
-  uint8_t FRAM_MOSI = 13;
-  uint8_t FRAM_CS = 15;
-  Adafruit_FRAM_SPI fram = Adafruit_FRAM_SPI(FRAM_SCK, FRAM_MISO, FRAM_MOSI, FRAM_CS);
+  uint8_t FRAM_SCK = 14; // SCK Pin
+  uint8_t FRAM_MISO = 12; // MISO Pin
+  uint8_t FRAM_MOSI = 13; // MOSI Pin
+  uint8_t FRAM_CS = 15; // CS Pin
+  Adafruit_FRAM_SPI fram = Adafruit_FRAM_SPI(FRAM_SCK, FRAM_MISO, FRAM_MOSI, FRAM_CS); // FRAM Object
 #endif
 
 #ifdef USE_SHT31
@@ -145,11 +145,8 @@
   Adafruit_SHT31 sht31 = Adafruit_SHT31();
   bool enableHeater = false;
   uint8_t loopCnt = 0;
-
   float temperature, humidity;
-
   SHT31_Alert_t highAlert,LowAlert;
-
   TaskHandle_t xSHT31TaskHandle;
 
   #ifndef _USE_TH_SENSOR
@@ -173,16 +170,16 @@
   #define _MODBUSCOILS 5 // Modbus Coils
   #define _MODBUSDISCRETEINPUTS 4 // Modbus Discrete Inputs 
 
-  EthernetServer ethServer(502); // Ethernet server 
-  EthernetClient ModbusClient;
-  ModbusTCPServer modbusTCPServer;
+  EthernetServer ethServer(502); // The Ethernet server 
+  EthernetClient ModbusClient;   // The Client 
+  ModbusTCPServer modbusTCPServer; // The Modbus Server
 
-  TaskHandle_t xModbusTaskHandle;
-  TaskHandle_t xModbusPollTaskHandle;
+  TaskHandle_t xModbusTaskHandle;      // Task updates registers and determines if holding registers changed
+  TaskHandle_t xModbusPollTaskHandle;  // Task polls for clients 
 
-  bool ModbusDiscreteInputs[_MODBUSDISCRETEINPUTS];
-  bool ModbusCoils[_MODBUSCOILS];
-  uint16_t ModbusInputRegisters[_MODBUSINPUTREGISTERS];
+  bool ModbusDiscreteInputs[_MODBUSDISCRETEINPUTS]; // Modbus Discrete Inputs
+  bool ModbusCoils[_MODBUSCOILS]; // Mpdbus Coils
+  uint16_t ModbusInputRegisters[_MODBUSINPUTREGISTERS]; // Modbus Input Registers
   uint16_t ModbusHoldingRegisters[_MODBUSHOLDINGREGISTERS];
 
   // structure to break apart a 32-bit float into 2 16-bit Modbus registers
@@ -217,27 +214,28 @@ byte mac[] = {
 // default IP address
 IPAddress ip(192, 168, 1, 177);
 
+// webserver definitions 
+static void xHTTPUpdateTask(void *pvParameters); // Webserver Task 
+EthernetClient HTTPClient; // The Web Client
+TaskHandle_t xHTTPClientTaskHandle; // Task Handle for Webserver Task
 // Initialize the Ethernet server library
 // with the IP address and port you want to use
 // (port 80 is default for HTTP):
 EthernetServer server(80);
 
-// NTP Client 
-#include <NTPClient.h>
-DateTime now;
-DateTime ntptime;
+// NTP Client definitions
+#include <NTPClient.h> // NTP Client Library 
+DateTime now; // Current DateTime
+DateTime ntptime; // NTP Time
 // WiFiUDP wifiUdp;
-EthernetUDP eth0udp;
-NTPClient timeClient(eth0udp);
-static void xNTPClientTask(void *pvParameters);
-TaskHandle_t xNTPClientTaskHandle; 
+EthernetUDP eth0udp; // UDP Socket for NTP Client
+NTPClient timeClient(eth0udp); // NTP Client 
+static void xNTPClientTask(void *pvParameters); // NTP Client Task
+TaskHandle_t xNTPClientTaskHandle;  // NTP Client Task Handle
 
-// webserver
-static void xHTTPUpdateTask(void *pvParameters);
-EthernetClient HTTPClient;
-TaskHandle_t xHTTPClientTaskHandle;
-static void xSetOutputPinsTask(void *pvParameters);
-TaskHandle_t xSetOutputPinsTaskHandle;
+// Output Pin Definitions
+static void xSetOutputPinsTask(void *pvParameters); // Task updates Digital Outputs
+TaskHandle_t xSetOutputPinsTaskHandle; // Task handle for task to update Digital Outputs
 
 // Semaphore Definitions 
 SemaphoreHandle_t I2CBusSemaphore; // Arbitrate I2C bus access
@@ -245,13 +243,13 @@ SemaphoreHandle_t Eth0Semaphore; // Arbitrate Eth0 bus access
 
 void setup() {
   FloatToInt16 conversion;
-  // put your setup code here, to run once:
   Serial.begin(115200);
 //  while(!Serial);
   SPI.begin();
-  I2CBusSemaphore = xSemaphoreCreateMutex();
-  Eth0Semaphore = xSemaphoreCreateMutex();
+  I2CBusSemaphore = xSemaphoreCreateMutex(); // Create I2C Semaphore
+  Eth0Semaphore = xSemaphoreCreateMutex(); // Create ETH0 Semaphore
 #ifdef _USE_RTC
+// Initialize the RTC 
     Serial.println("Initialize RTC");
     if(rtc.begin(&Wire)){      
 //      rtc.start();
@@ -274,23 +272,21 @@ void setup() {
   }
 
   // Setup output pins
-  pinMode(_HIGH_HEAT_PIN, OUTPUT);
-  pinMode(_LOW_HEAT_PIN, OUTPUT);
-  pinMode(_HIGH_HUMIDITY_PIN, OUTPUT);
-  pinMode(_LOW_HUMIDITY_PIN, OUTPUT);
+  pinMode(_HIGH_HEAT_PIN, OUTPUT); // Digital Output for High Temperature alert 
+  pinMode(_LOW_HEAT_PIN, OUTPUT);  // Digital Output for Low Temperature alert 
+  pinMode(_HIGH_HUMIDITY_PIN, OUTPUT); // Digital Output for High Humidity alert 
+  pinMode(_LOW_HUMIDITY_PIN, OUTPUT); // Digital Output for Low Humidity alert 
 
-  // Initialize SHT31 Temp/humidity sensor
-  sht31.begin(0x44);
-  sht31.setHighAlert(&highAlert);
-  sht31.setLowAlert(&LowAlert);
-  sht31.PeriodicMode(_10mps_low_Res);
-
-  xTaskCreate(xSHT31Task,     "Sensor Task",       256, NULL, tskIDLE_PRIORITY + 3, &xSHT31TaskHandle);
+  sht31.begin(0x44);   // Initialize SHT31 Temp/humidity sensor
+  sht31.setHighAlert(&highAlert); // Write High Temp/Humidity alerts to SHT31
+  sht31.setLowAlert(&LowAlert); // Write Low Temp/Humdity alerts to SHT31
+  sht31.PeriodicMode(_10mps_low_Res); // Periodic mode 
+  xTaskCreate(xSHT31Task,     "Sensor Task",       256, NULL, tskIDLE_PRIORITY + 3, &xSHT31TaskHandle); // start Sensor Update task
 
   pinMode(8, INPUT_PULLUP); // RF69 Enable pin
   pinMode(10, OUTPUT); // Ethernet Feather CS pin
 
-  SD.begin(SDchipSelect);
+  SD.begin(SDchipSelect); 
 
   // Initialize Ethernet 
   Ethernet.init(10);
@@ -308,7 +304,6 @@ void setup() {
     Serial.println("Ethernet cable is not connected.");
   }
 
-  // start the server
   server.begin(); // start webserver
   Serial.print("server is at ");
   Serial.println(Ethernet.localIP());
@@ -363,6 +358,7 @@ void setup() {
 
 }
 
+// RTOS Scheduler will not allow us to get here
 void loop() {
 }
 
@@ -398,8 +394,6 @@ while(true){
     modbusTCPServer.discreteInputWrite(0x05, sht31.LowTempActive()); // Low Temperature alert is Active
     modbusTCPServer.discreteInputWrite(0x06, sht31.HighHumidityActive()); // High Humidity alert is Active
     modbusTCPServer.discreteInputWrite(0x07, sht31.LowHumidityActive()); // Low Humidity alert is Active
-
-  // Read Modbus Holding registers 
 
   // Read High Temperature alert Setpoint
   conversion.ModbusInt[0] = modbusTCPServer.holdingRegisterRead(0x08);
@@ -442,53 +436,51 @@ while(true){
   ModbusLowAlert.ClearHumidity = conversion.f;
 
   // Determine which holding registers changed. Update as necessary. 
-  bool ShouldUpdateModbus = false; 
+  bool AlertValuesChanged = false; // Only save update if values change 
   if(ModbusHighAlert.SetTemp!=highAlert.SetTemp){   // High Temperature alert Setpoint changed 
       if(ModbusHighAlert.SetTemp>=-20&&ModbusHighAlert.SetTemp<=200){ // Sanity check
         highAlert.SetTemp = ModbusHighAlert.SetTemp; // Update High Temperature Setpoint
-        ShouldUpdateModbus = true;}} // Notify Holding Registers Changed
+        AlertValuesChanged = true;}} // Notify Holding Registers Changed
   if(ModbusHighAlert.ClearTemp!=highAlert.ClearTemp){   // High Temperature alert Clear point changed 
       if(ModbusHighAlert.ClearTemp>=-20&&ModbusHighAlert.ClearTemp<=200){ // Sanity check
         highAlert.ClearTemp = ModbusHighAlert.ClearTemp; //Update High Temperature Clear point
-        ShouldUpdateModbus = true;}}  // Notify Holding Registers Changed
+        AlertValuesChanged = true;}}  // Notify Holding Registers Changed
   if(ModbusHighAlert.SetHumidity!=highAlert.SetHumidity){   // High Humidity alert Setpoint changed
       if(ModbusHighAlert.SetHumidity>=0&&ModbusHighAlert.SetHumidity<=100){ // Sanity check 
         highAlert.SetHumidity = ModbusHighAlert.SetHumidity; // Update High Humidity alert
-        ShouldUpdateModbus = true;}}  // Notify Holding Registers Changed
+        AlertValuesChanged = true;}}  // Notify Holding Registers Changed
   if(ModbusHighAlert.ClearHumidity!=highAlert.ClearHumidity){   // High Humidity alert Clear point changed
       if(ModbusHighAlert.ClearHumidity>=0&&ModbusHighAlert.ClearHumidity<=100){ // Sanity check
         highAlert.ClearHumidity = ModbusHighAlert.ClearHumidity; // Update High Humidity Clear point 
-        ShouldUpdateModbus = true;}} // Notify Holding Registers Changed
+        AlertValuesChanged = true;}} // Notify Holding Registers Changed
   if(ModbusLowAlert.SetTemp!=LowAlert.SetTemp){  // Low temperature setpoint changed
       if(ModbusLowAlert.SetTemp>=-20&&ModbusLowAlert.SetTemp<=200){ // Sanity check
         LowAlert.SetTemp = ModbusLowAlert.SetTemp; // Update low temperature alert setpoint
-        ShouldUpdateModbus = true;}} // Notify Holding Registers Changed
+        AlertValuesChanged = true;}} // Notify Holding Registers Changed
   if(ModbusLowAlert.ClearTemp!=LowAlert.ClearTemp){ // low temperature clear point changed
       if(ModbusLowAlert.ClearTemp>=-20&&ModbusLowAlert.ClearTemp<=200){ // sanity check
         LowAlert.ClearTemp = ModbusLowAlert.ClearTemp; // Update low temperature alert clear point 
-        ShouldUpdateModbus = true;}}// Notify Holding Registers Changed
+        AlertValuesChanged = true;}}// Notify Holding Registers Changed
   if(ModbusLowAlert.SetHumidity!=LowAlert.SetHumidity){  // low humidity setpoint changed
       if(ModbusLowAlert.SetHumidity>=0&&ModbusLowAlert.SetHumidity<=100){// Sanity check
         LowAlert.SetHumidity = ModbusLowAlert.SetHumidity; // Update Low Humidity alert Setpoint
-        ShouldUpdateModbus = true;}}// Notify Holding Registers Changed
+        AlertValuesChanged = true;}}// Notify Holding Registers Changed
   if(ModbusLowAlert.ClearHumidity!=LowAlert.ClearHumidity){  // low humidity clear point changed
       if(ModbusLowAlert.ClearHumidity>=0&&ModbusLowAlert.ClearHumidity<=100){ // Sanity check
         LowAlert.ClearHumidity = ModbusLowAlert.ClearHumidity; // Update Low Humidity Alert Setpoint
-        ShouldUpdateModbus = true;}}// Notify Holding Registers Changed
-  if(ShouldUpdateModbus){    // if any alert values changed, update the physical sensor. 
+        AlertValuesChanged = true;}}// Notify Holding Registers Changed
+  if(AlertValuesChanged){    // if any alert values changed, update the physical sensor. 
     sht31.setHighAlert(&highAlert); // write high temperature/humidity values to the SHT31
     sht31.setLowAlert(&LowAlert); // write the Low temperature/humidity values to the SHT31
-
-    saveAlertValues(&highAlert,&LowAlert);
-
-    ShouldUpdateModbus = false; // only update when alert values change 
+    saveAlertValues(&highAlert,&LowAlert); //Writes High/Low Temperature alert values to NVRAM
+    AlertValuesChanged = false; // reset flag 
   }
-
-  vTaskDelay( (1000 * 1000) / portTICK_PERIOD_US );
+  vTaskDelay( (100 * 1000) / portTICK_PERIOD_US ); // Sleep for 100ms
 }
 }
   #endif
 
+// Sensor update task reads the SHT31 sensor 
 static void xSHT31Task(void *pvParameters){
 while(true){
 // Read SHT31 sensor and update temperature and humidity. 
@@ -522,6 +514,8 @@ if(xSemaphoreTake(I2CBusSemaphore,1)){
 }
 }
 
+// Webserver task polls for web clients and serves webpages 
+// to be inplemented
 static void xHTTPUpdateTask(void *pvParameters){
 while(true){
   if(xSemaphoreTake(Eth0Semaphore,5)){
@@ -584,6 +578,7 @@ while(true){
 }
 }
 
+// NTP Task polls NTP and updates the RTC
 static void xNTPClientTask(void *pvParameters){
 while(true){
 bool shouldUpdateRTC = false;
