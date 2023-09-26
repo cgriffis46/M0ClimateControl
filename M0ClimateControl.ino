@@ -43,6 +43,7 @@
       0x16 - Humidity Low Clear
       0x17 - 
   */
+// Defines 
 #define USE_SHT31
 #define _USE_MODBUS true
 #define USE_I2C_EEPROM true
@@ -53,6 +54,7 @@
 #define _HIGH_HUMIDITY_PIN 2
 #define _LOW_HUMIDITY_PIN 3
 
+// FreeRTOS Libraries 
 #include <FreeRTOS.h>
 #include <FreeRTOSConfig.h>
 #include <FreeRTOS_SAMD21.h>
@@ -75,14 +77,14 @@
 #include <task.h>
 #include <timers.h>
 
+// Standard Libraries
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
-
+// Datalogger 
 #include <SD.h>
 
-static void xHTTPUpdateTask(void *pvParameters);
-
+// Memory Definitions 
 #define _MEM_HIGH_TEMP_SET 0x0200
 #define _MEM_HIGH_TEMP_CLEAR 0x0204
 #define _MEM_LOW_TEMP_SET 0x0208
@@ -103,6 +105,7 @@ static void xHTTPUpdateTask(void *pvParameters);
 #define _LOW_HUMIDITY_SET_DEFAULT 50.0
 #define _LOW_HUMIDITY_CLEAR_DEFAULT 55.0
 
+// RTC Definitions 
 #ifdef _USE_DS3231
   #include <RTClib.h>
   RTC_DS3231 rtc;
@@ -120,11 +123,13 @@ static void xHTTPUpdateTask(void *pvParameters);
 #endif
 
 #ifdef USE_I2C_EEPROM
+// NVRAM definition for I2C EEPROM
   #include <Adafruit_EEPROM_I2C.h>
   Adafruit_EEPROM_I2C fram = Adafruit_EEPROM_I2C();
 #endif
 
 #ifdef USE_SPI_FRAM
+// NVRAM definition (if using SPI FRAM)
   #include <Adafruit_FRAM_SPI.h>
   uint8_t FRAM_SCK = 14;
   uint8_t FRAM_MISO = 12;
@@ -134,7 +139,8 @@ static void xHTTPUpdateTask(void *pvParameters);
 #endif
 
 #ifdef USE_SHT31
-  #include "Adafruit_SHT31.h"
+// temperature & humidity sensor
+  #include "Adafruit_SHT31.h" 
   static void xSHT31Task(void *pvParameters);
   Adafruit_SHT31 sht31 = Adafruit_SHT31();
   bool enableHeater = false;
@@ -156,6 +162,7 @@ static void xHTTPUpdateTask(void *pvParameters);
 
 #ifdef _USE_MODBUS
   static void xModbusTask(void *pvParameters);
+  static void xModbusPollTask(void *pvParameters);
 
   #include <SPI.h>
   #include <Ethernet.h>
@@ -171,6 +178,7 @@ static void xHTTPUpdateTask(void *pvParameters);
   ModbusTCPServer modbusTCPServer;
 
   TaskHandle_t xModbusTaskHandle;
+  TaskHandle_t xModbusPollTaskHandle;
 
   bool ModbusDiscreteInputs[_MODBUSDISCRETEINPUTS];
   bool ModbusCoils[_MODBUSCOILS];
@@ -214,36 +222,38 @@ IPAddress ip(192, 168, 1, 177);
 // (port 80 is default for HTTP):
 EthernetServer server(80);
 
+// NTP Client 
 #include <NTPClient.h>
-
 DateTime now;
 DateTime ntptime;
 // WiFiUDP wifiUdp;
 EthernetUDP eth0udp;
 NTPClient timeClient(eth0udp);
-
 static void xNTPClientTask(void *pvParameters);
-TaskHandle_t xNTPClientTaskHandle;
+TaskHandle_t xNTPClientTaskHandle; 
 
+// webserver
+static void xHTTPUpdateTask(void *pvParameters);
 EthernetClient HTTPClient;
 TaskHandle_t xHTTPClientTaskHandle;
-
 static void xSetOutputPinsTask(void *pvParameters);
 TaskHandle_t xSetOutputPinsTaskHandle;
 
-SemaphoreHandle_t I2CBusSemaphore;
-SemaphoreHandle_t Eth0Semaphore;
+// Semaphore Definitions 
+SemaphoreHandle_t I2CBusSemaphore; // Arbitrate I2C bus access
+SemaphoreHandle_t Eth0Semaphore; // Arbitrate Eth0 bus access
 
 void setup() {
+  FloatToInt16 conversion;
   // put your setup code here, to run once:
   Serial.begin(115200);
 //  while(!Serial);
   SPI.begin();
   I2CBusSemaphore = xSemaphoreCreateMutex();
   Eth0Semaphore = xSemaphoreCreateMutex();
-  #ifdef _USE_RTC
+#ifdef _USE_RTC
     Serial.println("Initialize RTC");
-    if(rtc.begin(&Wire)){
+    if(rtc.begin(&Wire)){      
 //      rtc.start();
       now = rtc.now();
   }
@@ -299,28 +309,57 @@ void setup() {
   }
 
   // start the server
-  server.begin();
+  server.begin(); // start webserver
   Serial.print("server is at ");
   Serial.println(Ethernet.localIP());
   HTTPClient.setConnectionTimeout(2000);
-  xTaskCreate(xHTTPUpdateTask,     "HTTP Update Task",       256, NULL, tskIDLE_PRIORITY + 9, &xHTTPClientTaskHandle);
+  xTaskCreate(xHTTPUpdateTask,     "HTTP Update Task",       256, NULL, tskIDLE_PRIORITY + 9, &xHTTPClientTaskHandle); // Start web server task
 
 #ifdef _USE_MODBUS
-  // Configure Modbus Registers
-  modbusTCPServer.begin();
-  modbusTCPServer.configureInputRegisters(0x00, _MODBUSINPUTREGISTERS);
-  modbusTCPServer.configureDiscreteInputs(0x04, _MODBUSDISCRETEINPUTS);
-  modbusTCPServer.configureHoldingRegisters(0x08,_MODBUSHOLDINGREGISTERS);
-
-  xTaskCreate(xModbusTask,     "Modbus Task",       256, NULL, tskIDLE_PRIORITY + 8, &xModbusTaskHandle);
+    // Configure Modbus Registers
+    modbusTCPServer.begin();
+    modbusTCPServer.configureInputRegisters(0x00, _MODBUSINPUTREGISTERS);
+    modbusTCPServer.configureDiscreteInputs(0x04, _MODBUSDISCRETEINPUTS);
+    modbusTCPServer.configureHoldingRegisters(0x08,_MODBUSHOLDINGREGISTERS);
+    // Write current High Temperature setpoint to Modbus 
+    conversion.f = highAlert.SetTemp;
+    modbusTCPServer.holdingRegisterWrite(0x08, conversion.ModbusInt[0]);
+    modbusTCPServer.holdingRegisterWrite(0x09, conversion.ModbusInt[1]);
+    // Write current High Temperature clear point to Modbus 
+    conversion.f = highAlert.ClearTemp;
+    modbusTCPServer.holdingRegisterWrite(0x0A, conversion.ModbusInt[0]);
+    modbusTCPServer.holdingRegisterWrite(0x0B, conversion.ModbusInt[1]);
+    // Write current High Humidity setpoint to Modbus 
+    conversion.f = highAlert.SetHumidity;
+    modbusTCPServer.holdingRegisterWrite(0x0C, conversion.ModbusInt[0]);
+    modbusTCPServer.holdingRegisterWrite(0x0D, conversion.ModbusInt[1]);
+    // Write current High Humidity clear point to Modbus 
+    conversion.f = highAlert.ClearHumidity;
+    modbusTCPServer.holdingRegisterWrite(0x0E, conversion.ModbusInt[0]);
+    modbusTCPServer.holdingRegisterWrite(0x0F, conversion.ModbusInt[1]);
+    // Write current Low Temperature setpoint to Modbus 
+    conversion.f = LowAlert.SetTemp;
+    modbusTCPServer.holdingRegisterWrite(0x10, conversion.ModbusInt[0]);
+    modbusTCPServer.holdingRegisterWrite(0x11, conversion.ModbusInt[1]);
+    // Write current Low Temperature clear point to Modbus 
+    conversion.f = LowAlert.ClearTemp;
+    modbusTCPServer.holdingRegisterWrite(0x12, conversion.ModbusInt[0]);
+    modbusTCPServer.holdingRegisterWrite(0x13, conversion.ModbusInt[1]);
+    // Write current Low Humidity setpoint to Modbus 
+    conversion.f = LowAlert.SetHumidity;
+    modbusTCPServer.holdingRegisterWrite(0x14, conversion.ModbusInt[0]);
+    modbusTCPServer.holdingRegisterWrite(0x15, conversion.ModbusInt[1]);
+    // Write current Low Humidity clear point to Modbus 
+    conversion.f = LowAlert.ClearHumidity;
+    modbusTCPServer.holdingRegisterWrite(0x16, conversion.ModbusInt[0]);
+    modbusTCPServer.holdingRegisterWrite(0x17, conversion.ModbusInt[1]);
+  xTaskCreate(xModbusTask,     "Modbus Update Task",       256, NULL, tskIDLE_PRIORITY + 8, &xModbusTaskHandle); // Start register update task
+  xTaskCreate(xModbusPollTask,     "Modbus Poll",       256, NULL, tskIDLE_PRIORITY + 8, &xModbusPollTaskHandle); // Start client poll task
 #endif
-
-  timeClient.begin();
-  xTaskCreate(xNTPClientTask,     "NTP Task",       256, NULL, tskIDLE_PRIORITY + 5, &xNTPClientTaskHandle);
-
-  xTaskCreate(xSetOutputPinsTask,     "NTP Task",       256, NULL, tskIDLE_PRIORITY + 8, &xSetOutputPinsTaskHandle);
-
-  vTaskStartScheduler();
+  timeClient.begin(); // Start NTP Client 
+  xTaskCreate(xNTPClientTask,     "NTP Task",       256, NULL, tskIDLE_PRIORITY + 5, &xNTPClientTaskHandle); // Start NTP Update task
+  xTaskCreate(xSetOutputPinsTask,     "NTP Task",       256, NULL, tskIDLE_PRIORITY + 8, &xSetOutputPinsTaskHandle); // Start task to update output values
+  vTaskStartScheduler(); // Start task scheduler
 
 }
 
@@ -328,10 +367,12 @@ void loop() {
 }
 
 #ifdef _USE_MODBUS
+// Updates Modbus Input Registers and Discrete Inputs. 
+// Determines if any Holding registers have changed and
+// saves alert values to NVRAM
 static void xModbusTask(void *pvParameters){
 while(true){
-// Check if we have a modbus client connected and poll Modbus if necessary
-if(xSemaphoreTake(Eth0Semaphore,10)){
+
     FloatToInt16 conversion;
     // Write Input Registers to Modbus
     // 0x00 - Temperature (32 bit float)
@@ -358,59 +399,6 @@ if(xSemaphoreTake(Eth0Semaphore,10)){
     modbusTCPServer.discreteInputWrite(0x06, sht31.HighHumidityActive()); // High Humidity alert is Active
     modbusTCPServer.discreteInputWrite(0x07, sht31.LowHumidityActive()); // Low Humidity alert is Active
 
-    // Write current High Temperature setpoint to Modbus 
-    conversion.f = highAlert.SetTemp;
-    modbusTCPServer.holdingRegisterWrite(0x08, conversion.ModbusInt[0]);
-    modbusTCPServer.holdingRegisterWrite(0x09, conversion.ModbusInt[1]);
-
-    // Write current High Temperature clear point to Modbus 
-    conversion.f = highAlert.ClearTemp;
-    modbusTCPServer.holdingRegisterWrite(0x0A, conversion.ModbusInt[0]);
-    modbusTCPServer.holdingRegisterWrite(0x0B, conversion.ModbusInt[1]);
-
-    // Write current High Humidity setpoint to Modbus 
-    conversion.f = highAlert.SetHumidity;
-    modbusTCPServer.holdingRegisterWrite(0x0C, conversion.ModbusInt[0]);
-    modbusTCPServer.holdingRegisterWrite(0x0D, conversion.ModbusInt[1]);
-
-    // Write current High Humidity clear point to Modbus 
-    conversion.f = highAlert.ClearHumidity;
-    modbusTCPServer.holdingRegisterWrite(0x0E, conversion.ModbusInt[0]);
-    modbusTCPServer.holdingRegisterWrite(0x0F, conversion.ModbusInt[1]);
-
-    // Write current Low Temperature setpoint to Modbus 
-    conversion.f = LowAlert.SetTemp;
-    modbusTCPServer.holdingRegisterWrite(0x10, conversion.ModbusInt[0]);
-    modbusTCPServer.holdingRegisterWrite(0x11, conversion.ModbusInt[1]);
-
-    // Write current Low Temperature clear point to Modbus 
-    conversion.f = LowAlert.ClearTemp;
-    modbusTCPServer.holdingRegisterWrite(0x12, conversion.ModbusInt[0]);
-    modbusTCPServer.holdingRegisterWrite(0x13, conversion.ModbusInt[1]);
-
-    // Write current Low Humidity setpoint to Modbus 
-    conversion.f = LowAlert.SetHumidity;
-    modbusTCPServer.holdingRegisterWrite(0x14, conversion.ModbusInt[0]);
-    modbusTCPServer.holdingRegisterWrite(0x15, conversion.ModbusInt[1]);
-
-    // Write current Low Humidity clear point to Modbus 
-    conversion.f = LowAlert.ClearHumidity;
-    modbusTCPServer.holdingRegisterWrite(0x16, conversion.ModbusInt[0]);
-    modbusTCPServer.holdingRegisterWrite(0x17, conversion.ModbusInt[1]);
-
-    if(ModbusClient.connected()){ // client is already connected 
-      modbusTCPServer.poll();
-    } else 
-    {
-      // listen for incoming clients
-      ModbusClient = ethServer.available();
-      if(ModbusClient) {
-        // let the Modbus TCP accept the connection 
-        modbusTCPServer.accept(ModbusClient);
-        // poll for Modbus TCP requests, while client connected
-        modbusTCPServer.poll();
-      } 
-    }
   // Read Modbus Holding registers 
 
   // Read High Temperature alert Setpoint
@@ -496,17 +484,8 @@ if(xSemaphoreTake(Eth0Semaphore,10)){
     ShouldUpdateModbus = false; // only update when alert values change 
   }
 
-    // give up the semaphore and sleep 250ms
-    xSemaphoreGive(Eth0Semaphore);
-    vTaskDelay( (250 * 1000) / portTICK_PERIOD_US );  
-  } 
-  else {
-    // Did not get the semaphore, sleep 1 ms. 
-    vTaskDelay( (1 * 1000) / portTICK_PERIOD_US );  
-  }
-
+  vTaskDelay( (1000 * 1000) / portTICK_PERIOD_US );
 }
-
 }
   #endif
 
@@ -657,6 +636,32 @@ while(true){
 
 static void xDataloggerTask(void *pvParameters){
 
-
 }
 
+// Poll modbus for clients and respond. 
+// Reading/Writing registers will be handled in a separate
+// task to reduce the time we have the mutex. 
+static void xModbusPollTask(void *pvParameters){
+while(true){
+  if(xSemaphoreTake(Eth0Semaphore,1)){
+      if(ModbusClient.connected()){ // client is already connected 
+      modbusTCPServer.poll();
+    } else 
+    {
+      // listen for incoming clients
+      ModbusClient = ethServer.available();
+      if(ModbusClient) {
+        // let the Modbus TCP accept the connection 
+        modbusTCPServer.accept(ModbusClient);
+        // poll for Modbus TCP requests, while client connected
+        modbusTCPServer.poll();
+      } 
+    }
+    xSemaphoreGive( Eth0Semaphore );
+    vTaskDelay(100/portTICK_PERIOD_MS ); 
+  }
+  else {
+    vTaskDelay( 1000/portTICK_PERIOD_US );
+  }
+}
+}
