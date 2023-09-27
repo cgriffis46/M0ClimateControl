@@ -36,12 +36,9 @@
  */
 Adafruit_SHT31::Adafruit_SHT31(TwoWire *theWire) {
   _wire = theWire;
-
   humidity = NAN;
   temp = NAN;
-
   TempHighAlert = false; TempLowAlert = false; HumidityHighAlert = false; HumidityLowAlert = false;
-
 }
 
 /**

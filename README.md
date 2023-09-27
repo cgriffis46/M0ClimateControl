@@ -22,7 +22,7 @@
       Authenticate Modbus clients 
       Implement temperature unit
       Implement datalogging
-
+      improve sanity checks for holding registers
     MODBUS REGISTERS
     INPUT REGISTERS 
       0x00 - temperature in Celcius (32-bit float)

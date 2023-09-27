@@ -119,7 +119,7 @@
     #define _USE_RTC
   #endif
   #include "RTClib.h"
-  RTC_PCF8523 rtc;
+  RTC_PCF8523 rtc; 
 #endif
 
 #ifdef USE_I2C_EEPROM
@@ -140,14 +140,14 @@
 
 #ifdef USE_SHT31
 // temperature & humidity sensor
-  #include "Adafruit_SHT31.h" 
-  static void xSHT31Task(void *pvParameters);
-  Adafruit_SHT31 sht31 = Adafruit_SHT31();
-  bool enableHeater = false;
-  uint8_t loopCnt = 0;
-  float temperature, humidity;
-  SHT31_Alert_t highAlert,LowAlert;
-  TaskHandle_t xSHT31TaskHandle;
+  #include "Adafruit_SHT31.h"  // Sensor Library
+  static void xSHT31Task(void *pvParameters); // Sensor Update Task
+  Adafruit_SHT31 sht31 = Adafruit_SHT31(); // SHT31 Sensor Object
+  bool enableHeater = false; // Heater must be turned on periodically to remove condensation. 
+  uint8_t loopCnt = 0; 
+  float temperature, humidity; // Temperature and Humidity registers 
+  SHT31_Alert_t highAlert,LowAlert; // Registers for High/Low Alert Values
+  TaskHandle_t xSHT31TaskHandle; // Sensor Update Task Handle  
 
   #ifndef _USE_TH_SENSOR
     #define _USE_TH_SENSOR
@@ -244,8 +244,8 @@ SemaphoreHandle_t Eth0Semaphore; // Arbitrate Eth0 bus access
 void setup() {
   FloatToInt16 conversion;
   Serial.begin(115200);
-//  while(!Serial);
-  SPI.begin();
+//  while(!Serial); // debug purposes only 
+  SPI.begin(); // initialize SPI
   I2CBusSemaphore = xSemaphoreCreateMutex(); // Create I2C Semaphore
   Eth0Semaphore = xSemaphoreCreateMutex(); // Create ETH0 Semaphore
 #ifdef _USE_RTC
@@ -253,46 +253,37 @@ void setup() {
     Serial.println("Initialize RTC");
     if(rtc.begin(&Wire)){      
 //      rtc.start();
-      now = rtc.now();
-  }
+      now = rtc.now();}
   else {
-    Serial.println("Could not initialize RTC!");
-  }
+    Serial.println("Could not initialize RTC!");}
 #endif // USE_RTC
   // Initialize NVRAM
-  Serial.println("Initialize NVRAM");
+  //Serial.println("Initialize NVRAM"); // debug string
   if(fram.begin(0x50)){
      //loadCredentials();            // Load WLAN credentials from network
      //LoadSensorsFromDisk();
      //LoadWundergroundCredentials();// Load Wunderground Interface credentials
-     loadAlertValues(&highAlert,&LowAlert);
-  }
+     loadAlertValues(&highAlert,&LowAlert);}
   else{
-    Serial.println("could not initialize fram");
-  }
-
+    Serial.println("could not initialize fram");}
   // Setup output pins
   pinMode(_HIGH_HEAT_PIN, OUTPUT); // Digital Output for High Temperature alert 
   pinMode(_LOW_HEAT_PIN, OUTPUT);  // Digital Output for Low Temperature alert 
   pinMode(_HIGH_HUMIDITY_PIN, OUTPUT); // Digital Output for High Humidity alert 
   pinMode(_LOW_HUMIDITY_PIN, OUTPUT); // Digital Output for Low Humidity alert 
-
+  // Initialize Temperature/Humidity Sensor 
   sht31.begin(0x44);   // Initialize SHT31 Temp/humidity sensor
   sht31.setHighAlert(&highAlert); // Write High Temp/Humidity alerts to SHT31
   sht31.setLowAlert(&LowAlert); // Write Low Temp/Humdity alerts to SHT31
   sht31.PeriodicMode(_10mps_low_Res); // Periodic mode 
-  xTaskCreate(xSHT31Task,     "Sensor Task",       256, NULL, tskIDLE_PRIORITY + 3, &xSHT31TaskHandle); // start Sensor Update task
-
+  xTaskCreate(xSHT31Task,"Sensor Task",256, NULL,tskIDLE_PRIORITY + 3,&xSHT31TaskHandle); // start Sensor Update task
   pinMode(8, INPUT_PULLUP); // RF69 Enable pin
   pinMode(10, OUTPUT); // Ethernet Feather CS pin
-
-  SD.begin(SDchipSelect); 
-
+//  SD.begin(SDchipSelect); 
   // Initialize Ethernet 
   Ethernet.init(10);
   // start the Ethernet connection and the server:
   Ethernet.begin(mac);
-
   // Check for Ethernet hardware present
   if (Ethernet.hardwareStatus() == EthernetNoHardware) {
     Serial.println("Ethernet shield was not found.  Sorry, can't run without hardware. :(");
@@ -301,8 +292,7 @@ void setup() {
     }
   }
   if (Ethernet.linkStatus() == LinkOFF) {
-    Serial.println("Ethernet cable is not connected.");
-  }
+    Serial.println("Ethernet cable is not connected.");  }
 
   server.begin(); // start webserver
   Serial.print("server is at ");
@@ -368,8 +358,7 @@ void loop() {
 // saves alert values to NVRAM
 static void xModbusTask(void *pvParameters){
 while(true){
-
-    FloatToInt16 conversion;
+    FloatToInt16 conversion; // used to convert 32 bit Floats into Modbus sized Int16 values
     // Write Input Registers to Modbus
     // 0x00 - Temperature (32 bit float)
     // 0x01 - 
@@ -394,47 +383,38 @@ while(true){
     modbusTCPServer.discreteInputWrite(0x05, sht31.LowTempActive()); // Low Temperature alert is Active
     modbusTCPServer.discreteInputWrite(0x06, sht31.HighHumidityActive()); // High Humidity alert is Active
     modbusTCPServer.discreteInputWrite(0x07, sht31.LowHumidityActive()); // Low Humidity alert is Active
-
   // Read High Temperature alert Setpoint
   conversion.ModbusInt[0] = modbusTCPServer.holdingRegisterRead(0x08);
   conversion.ModbusInt[1] = modbusTCPServer.holdingRegisterRead(0x09);
   ModbusHighAlert.SetTemp = conversion.f;
-
   // Read High Temperature alert Clear point
   conversion.ModbusInt[0] = modbusTCPServer.holdingRegisterRead(0x0A);
   conversion.ModbusInt[1] = modbusTCPServer.holdingRegisterRead(0x0B);
   ModbusHighAlert.ClearTemp = conversion.f;
-
   // Read High Humidity alert Setpoint
   conversion.ModbusInt[0] = modbusTCPServer.holdingRegisterRead(0x0C);
   conversion.ModbusInt[1] = modbusTCPServer.holdingRegisterRead(0x0D);
   ModbusHighAlert.SetHumidity = conversion.f;
-
   // Read High Humidity alert clear point
   conversion.ModbusInt[0] = modbusTCPServer.holdingRegisterRead(0x0E);
   conversion.ModbusInt[1] = modbusTCPServer.holdingRegisterRead(0x0F);
   ModbusHighAlert.ClearHumidity = conversion.f;
-
   // Read Low temperature alert setpoint 
   conversion.ModbusInt[0] = modbusTCPServer.holdingRegisterRead(0x10);
   conversion.ModbusInt[1] = modbusTCPServer.holdingRegisterRead(0x11);
   ModbusLowAlert.SetTemp = conversion.f;
-
   // Read low temperature alert clear point
   conversion.ModbusInt[0] = modbusTCPServer.holdingRegisterRead(0x12);
   conversion.ModbusInt[1] = modbusTCPServer.holdingRegisterRead(0x13);
   ModbusLowAlert.ClearTemp = conversion.f;
-
   // read low humidity alert setpoint 
   conversion.ModbusInt[0] = modbusTCPServer.holdingRegisterRead(0x14);
   conversion.ModbusInt[1] = modbusTCPServer.holdingRegisterRead(0x15);
   ModbusLowAlert.SetHumidity = conversion.f;
-
   // read low humidity alert clear point
   conversion.ModbusInt[0] = modbusTCPServer.holdingRegisterRead(0x16);
   conversion.ModbusInt[1] = modbusTCPServer.holdingRegisterRead(0x17);
   ModbusLowAlert.ClearHumidity = conversion.f;
-
   // Determine which holding registers changed. Update as necessary. 
   bool AlertValuesChanged = false; // Only save update if values change 
   if(ModbusHighAlert.SetTemp!=highAlert.SetTemp){   // High Temperature alert Setpoint changed 
@@ -487,14 +467,12 @@ while(true){
 float t, h;
 if(xSemaphoreTake(I2CBusSemaphore,1)){
   if(sht31.FetchData(&t, &h)){
-
     if (! isnan(t)) {  // check if 'is not a number'
       temperature = t;
       Serial.print("Temp *C = "); Serial.print(temperature); Serial.print("\t\t");
     } else { 
       Serial.println("Failed to read temperature");
-    }
-  
+    }  
     if (! isnan(h)) {  // check if 'is not a number'
       humidity = h;
       Serial.print("Hum. % = "); Serial.println(humidity);
@@ -511,8 +489,7 @@ if(xSemaphoreTake(I2CBusSemaphore,1)){
   sht31.ReadLowAlert(&LowAlert);
 }
   vTaskDelay( (1000 * 1000) / portTICK_PERIOD_US );
-}
-}
+}}// End of thread
 
 // Webserver task polls for web clients and serves webpages 
 // to be inplemented
@@ -562,7 +539,6 @@ while(true){
           currentLineIsBlank = false;
         }
       }
-         //vTaskDelay( 2/portTICK_PERIOD_MS );  
     }
       // give the web browser time to receive the data
       delay(1);
@@ -581,15 +557,13 @@ while(true){
 // NTP Task polls NTP and updates the RTC
 static void xNTPClientTask(void *pvParameters){
 while(true){
-bool shouldUpdateRTC = false;
-
-if(xSemaphoreTake(Eth0Semaphore,1)){
+bool shouldUpdateRTC = false; // Only update RTC if NTP update is successfull 
+if(xSemaphoreTake(Eth0Semaphore,1)){// we need eth0 semaphore to update time over NTP
        // timeClient must be called every loop to update NTP time 
-      if(timeClient.update()) {
-          if(timeClient.isTimeSet()){
-            shouldUpdateRTC = true;
-            // adjust the external RTC
-
+      if(timeClient.update()) {// NTP client will update about once a minute. 
+          if(timeClient.isTimeSet()){ // sanity check 
+            shouldUpdateRTC = true;// Update the RTC only when necessary
+            //debug strings
             //Serial.println("Updated RTC time!");
             //String timedate = String(now.year())+String("-")+String(now.month())+String("-")+String(now.day())+String(" ")+String(now.hour())+String(":")+String(now.minute())+String(":")+String(now.second());
             //Serial.println(now.timestamp());
@@ -604,19 +578,18 @@ if(xSemaphoreTake(Eth0Semaphore,1)){
     shouldUpdateRTC = false;
   }
 
+// NTP may only return true once per minute. Update the RTC only if necessary. 
 #ifdef _USE_RTC
-if(shouldUpdateRTC){
+if(shouldUpdateRTC){ 
   if(xSemaphoreTake(I2CBusSemaphore,5)){
   rtc.adjust(DateTime(timeClient.getEpochTime()));
   xSemaphoreGive( I2CBusSemaphore );}
-  vTaskDelay( 500/portTICK_PERIOD_MS );
 }
 else {
-  vTaskDelay( 500/portTICK_PERIOD_MS );
 }
+vTaskDelay( 500/portTICK_PERIOD_MS );
 #endif
-}
-}
+}}// end of thread
 
 static void xSetOutputPinsTask(void *pvParameters){
 while(true){
@@ -625,9 +598,9 @@ while(true){
   digitalWrite(_LOW_HEAT_PIN, sht31.LowTempActive());
   digitalWrite(_HIGH_HUMIDITY_PIN,sht31.HighHumidityActive());
   digitalWrite(_LOW_HUMIDITY_PIN, sht31.LowHumidityActive());
-  vTaskDelay( 1000/portTICK_PERIOD_US ); 
-}
-}
+  vTaskDelay( 1000/portTICK_PERIOD_US ); // sleep 1ms  
+}} // End of thread
+
 
 static void xDataloggerTask(void *pvParameters){
 
@@ -641,22 +614,19 @@ while(true){
   if(xSemaphoreTake(Eth0Semaphore,1)){
       if(ModbusClient.connected()){ // client is already connected 
       modbusTCPServer.poll();
-    } else 
-    {
+    } else {
       // listen for incoming clients
       ModbusClient = ethServer.available();
       if(ModbusClient) {
         // let the Modbus TCP accept the connection 
         modbusTCPServer.accept(ModbusClient);
         // poll for Modbus TCP requests, while client connected
-        modbusTCPServer.poll();
-      } 
+        modbusTCPServer.poll();} 
     }
     xSemaphoreGive( Eth0Semaphore );
     vTaskDelay(100/portTICK_PERIOD_MS ); 
   }
-  else {
+  else { // Did not obtain eth0 semaphore. Sleep until we can obtain the semaphore. 
     vTaskDelay( 1000/portTICK_PERIOD_US );
   }
-}
-}
+}}// End of task
